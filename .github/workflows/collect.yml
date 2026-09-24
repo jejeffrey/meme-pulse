@@ -1,0 +1,63 @@
+name: Meme Pulse 자동 수집
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # 30분마다 (GitHub 사정으로 몇 분~수십 분 늦을 수 있음)
+  workflow_dispatch:          # Actions 화면에서 'Run workflow'로 즉시 실행
+
+permissions:
+  contents: write
+
+concurrency:
+  group: meme-pulse-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 이전 수집 자료 가져오기
+        run: |
+          mkdir -p data
+          if git fetch origin gh-pages --depth=1 2>/dev/null; then
+            git show origin/gh-pages:data/history.json > data/history.json 2>/dev/null || rm -f data/history.json
+            git show origin/gh-pages:data/scan.json > data/scan.json 2>/dev/null || rm -f data/scan.json
+          else
+            echo "첫 실행: 이전 자료 없음"
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 수집
+        env:
+          SEOUL_API_KEY: ${{ secrets.SEOUL_API_KEY }}
+          AIRKOREA_API_KEY: ${{ secrets.AIRKOREA_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          IG_ACCESS_TOKEN: ${{ secrets.IG_ACCESS_TOKEN }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+        run: python collector/collect.py
+
+      - name: 사이트 묶기
+        run: |
+          mkdir -p site/data
+          cp index.html guide.html site/
+          cp data/history.json data/data.js site/data/
+          [ -f data/scan.json ] && cp data/scan.json site/data/ || true
+          touch site/.nojekyll
+
+      - name: 사이트 게시 (gh-pages 브랜치)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          force_orphan: true
+          commit_message: "자료 갱신"

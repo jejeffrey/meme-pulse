@@ -1,0 +1,150 @@
+{
+  "_설명": "장소를 미리 정하지 않아도 됩니다. keyword_discovery가 밈 키워드에서 장소를 찾아 추적합니다. places는 현장 실험지처럼 항상 볼 곳만 적으세요. README 3-1장, 7장 참고.",
+  "places": [
+    {
+      "id": "seoulforest",
+      "label": "서울숲",
+      "citydata_area": "서울숲공원",
+      "air_urban": "성동구",
+      "air_roadside": "강변북로"
+    },
+    {
+      "id": "worldcup",
+      "label": "월드컵공원(상암)",
+      "citydata_area": "월드컵공원",
+      "air_urban": "마포구",
+      "air_roadside": "신촌로"
+    }
+  ],
+  "keyword_discovery": {
+    "_설명": "밈 키워드에서 장소를 찾는 설정. seed_keywords에 추적하고 싶은 밈을 직접 넣을 수도 있습니다.",
+    "enabled": true,
+    "every_hours": 3,
+    "seed_keywords": [
+      "하늘공원 억새",
+      "성수 팝업"
+    ],
+    "seed_queries": [
+      "핫플",
+      "요즘 뜨는",
+      "팝업스토어",
+      "성지순례",
+      "인생샷 명소",
+      "오픈런",
+      "웨이팅 맛집",
+      "챌린지 장소"
+    ],
+    "mine_youtube": true,
+    "min_count": 4,
+    "rise_threshold": 2.0,
+    "rising_take": 20,
+    "resolve_max": 30,
+    "score_threshold": 2.0,
+    "min_hits": 2,
+    "instant_rise": 5,
+    "auto_track_max": 8,
+    "event_words": [
+      "축제",
+      "페스티벌",
+      "콘서트",
+      "팬미팅",
+      "공연",
+      "박람회",
+      "사전예약",
+      "티켓",
+      "페어",
+      "엑스포"
+    ],
+    "stopwords_extra": []
+  },
+  "keyword_groups": [
+    {
+      "name": "서울숲",
+      "place": "seoulforest",
+      "keywords": [
+        "서울숲"
+      ]
+    },
+    {
+      "name": "하늘공원 억새",
+      "place": "worldcup",
+      "keywords": [
+        "하늘공원 억새",
+        "하늘공원",
+        "억새축제"
+      ]
+    }
+  ],
+  "x_queries": [
+    {
+      "name": "서울숲",
+      "place": "seoulforest",
+      "query": "서울숲 -is:retweet"
+    }
+  ],
+  "search_days": 90,
+  "search_refresh_hours": 6,
+  "keep_days": 60,
+  "full_resolution_days": 7,
+  "discovery": {
+    "_설명": "자동 발굴 설정. README 7장 참고",
+    "enabled": true,
+    "scan_every_hours": 3,
+    "max_code": 130,
+    "baseline_days": 28,
+    "min_baseline": 3,
+    "ratio_threshold": 1.4,
+    "min_pop": 2000,
+    "min_hits": 2,
+    "auto_track_max": 6,
+    "max_groups": 15,
+    "place_words": [
+      "팝업",
+      "카페",
+      "맛집",
+      "축제",
+      "공원",
+      "거리",
+      "전시",
+      "성수",
+      "한강",
+      "억새",
+      "핫플",
+      "챌린지",
+      "성지"
+    ],
+    "population_auto_track": false
+  },
+  "social": {
+    "_설명": "검색어 기반 게시물 수집 설정. README 3-2장 참고",
+    "buzz_refresh_hours": 3,
+    "buzz_pages": 3,
+    "youtube_refresh_hours": 6,
+    "instagram_refresh_hours": 3,
+    "graph_version": "v23.0"
+  },
+  "instagram_hashtags": [
+    {
+      "tag": "하늘공원억새",
+      "place": "worldcup"
+    },
+    {
+      "tag": "하늘공원",
+      "place": "worldcup"
+    },
+    {
+      "tag": "서울숲",
+      "place": "seoulforest"
+    }
+  ],
+  "google_places": [
+    {
+      "query": "하늘공원 서울 마포구",
+      "place": "worldcup"
+    },
+    {
+      "query": "서울숲 성동구",
+      "place": "seoulforest"
+    }
+  ]
+}

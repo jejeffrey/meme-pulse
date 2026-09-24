@@ -1,0 +1,1313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Meme Pulse — 밈 전파 × 인구 × 대기질</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E8EDEF; --surface:#F7F9FA; --ink:#1B2B33; --muted:#5A6B73; --line:#C9D3D8; --soft:#DCE4E7;
+  --accent:#1F5F63; --fresh:#2E8B57; --late:#C98A12; --stale:#B23A3A;
+  --a10:#C93F7B; --a20:#DB7F1F; --a30:#3E9152; --a40:#2B6FB8; --a50:#6A4FB5; --aall:#1B2B33;
+  --air1:#1F5F63; --air2:#4F9AA0; --air3:#8C5A2B; --road:#7A6A1E; --wind:#6C7C84;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --bg:#141C20; --surface:#1C262B; --ink:#E3EAED; --muted:#98A8AF; --line:#34444C; --soft:#27333A;
+  --accent:#6FB8BC; --fresh:#4DBA7F; --late:#E0A83A; --stale:#E0685F;
+  --a10:#EE6FA3; --a20:#F0A34F; --a30:#67BE7C; --a40:#63A2E8; --a50:#9C86E0; --aall:#E3EAED;
+  --air1:#6FB8BC; --air2:#9FD2D6; --air3:#D09A63; --road:#C8B452; --wind:#98A8AF; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#141C20; --surface:#1C262B; --ink:#E3EAED; --muted:#98A8AF; --line:#34444C; --soft:#27333A;
+  --accent:#6FB8BC; --fresh:#4DBA7F; --late:#E0A83A; --stale:#E0685F;
+  --a10:#EE6FA3; --a20:#F0A34F; --a30:#67BE7C; --a40:#63A2E8; --a50:#9C86E0; --aall:#E3EAED;
+  --air1:#6FB8BC; --air2:#9FD2D6; --air3:#D09A63; --road:#C8B452; --wind:#98A8AF; color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 "IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;font-feature-settings:"tnum"}
+button,select,input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 60px}
+header.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px 24px;padding:22px 0 14px}
+.brand h1{margin:0;font-size:26px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.brand p{margin:4px 0 0;color:var(--muted);font-size:13.5px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto;align-items:center}
+select,input[type=text],input[type=url],input[type=number]{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 10px;min-height:36px}
+.btn{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 14px;min-height:36px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:600}
+.small{font-size:13px;color:var(--muted)}
+a.guidelink{text-decoration:none;display:inline-flex;align-items:center;color:var(--ink)}
+.banner{border-radius:8px;padding:10px 14px;margin:0 0 12px;font-size:14px}
+.banner.demo{background:color-mix(in srgb,var(--late) 18%,var(--surface));border:1px solid var(--late)}
+.banner.err{background:color-mix(in srgb,var(--stale) 12%,var(--surface));border:1px solid var(--stale)}
+
+/* 연결 상태 레인 — 이 화면의 중심 */
+.lanes{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.lanes-head{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;padding:12px 16px;border-bottom:1px solid var(--line)}
+.lanes-head strong{font-size:15px}
+.lane{display:grid;grid-template-columns:170px 118px 1fr 92px;gap:14px;align-items:center;padding:9px 16px;border-bottom:1px solid var(--soft)}
+.lane:last-child{border-bottom:0}
+.lane .nm{font-weight:600;font-size:14px}
+.lane .nm small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.lane .tm{font-size:13.5px}
+.track{position:relative;height:10px;background:var(--soft);border-radius:5px}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;transition:width .6s}
+.track b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--muted);opacity:.55}
+.lane .st{font-size:13px;font-weight:600;text-align:right}
+.lane .msg{grid-column:1/-1;font-size:12.5px;color:var(--stale);margin-top:-4px}
+.st.fresh{color:var(--fresh)} .st.late{color:var(--late)} .st.stale,.st.none{color:var(--stale)}
+
+nav.tabs{display:flex;gap:2px;margin:22px 0 14px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:9px 14px;cursor:pointer;color:var(--muted);font-weight:500;white-space:nowrap}
+nav.tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+section.view{display:none} section.view.on{display:block}
+
+h3.sub{margin:18px 0 8px;font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
+.fbox{flex:1 1 170px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;color:var(--muted)}
+.fbox b{display:block;color:var(--ink);font-size:14px;margin-bottom:2px}
+.fbox.main{border:2px solid var(--accent)}
+.farrow{align-self:center;font-size:12px;color:var(--muted);padding:0 2px}
+.farrow::after{content:" ▸"}
+.faq details{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:6px;padding:8px 12px}
+.faq summary{cursor:pointer;font-weight:600;font-size:14px}
+.faq p{margin:8px 0 2px;font-size:13.5px;color:var(--muted);max-width:76ch}
+table.lvl td,table.lvl th{white-space:normal;text-align:left;vertical-align:top}
+table.lvl td:first-child{font-weight:600;white-space:nowrap}
+body.nodata nav.tabs, body.nodata section.view, body.nodata .controls{display:none}
+.help{grid-column:1/-1;background:var(--bg);border-radius:8px;padding:10px 14px;margin-top:4px;font-size:13.5px}
+.help ol{margin:0;padding-left:20px} .help li{margin:3px 0;max-width:80ch}
+.help .hint{margin:0 0 6px;font-weight:600;color:var(--stale)}
+.help code,.startbox code{font-size:12.5px;background:var(--soft);padding:0 4px;border-radius:3px}
+.lane.extra{background:color-mix(in srgb,var(--soft) 40%,var(--surface))}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:3px 12px;font-size:13px;cursor:pointer}
+.chip span{color:var(--muted);font-size:11.5px} .chip.on{border-color:var(--accent);color:var(--accent)}
+.setup{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--accent) 7%,var(--surface))}
+.setup .steps{display:flex;gap:4px} .setup .steps span{width:22px;height:6px;border-radius:3px;background:var(--line)}
+.setup .steps span.on{background:var(--fresh)} .setup .steps span.next{background:var(--accent)}
+.setup .btn{margin-left:auto}
+details.how{border-bottom:1px solid var(--line);padding:8px 16px}
+details.how summary{cursor:pointer;font-size:13.5px;color:var(--accent);font-weight:600}
+details.how .flow{margin-top:10px}
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.choice{text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px;cursor:pointer}
+.choice:hover,.choice[aria-expanded=true]{border-color:var(--accent)}
+.choice b{display:block;font-size:15px;margin-bottom:4px} .choice span{font-size:13px;color:var(--muted)}
+ol.bigsteps{padding-left:22px;margin:0} ol.bigsteps li{margin:10px 0;max-width:80ch;font-size:14px}
+ol.bigsteps li>b{margin-right:6px}
+ol.bigsteps details{margin-top:6px} ol.bigsteps summary{cursor:pointer;color:var(--accent);font-size:13px}
+@media (max-width:760px){.farrow{flex-basis:100%;text-align:center}.farrow::after{content:" ▾"}}
+.tag{white-space:nowrap;display:inline-block;line-height:1.5;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;border:1px solid currentColor}
+.tag.meme{color:var(--a10)} .tag.ev{color:var(--late)} .tag.track{color:var(--fresh)}
+.linkbtn{background:none;border:0;color:var(--accent);text-decoration:underline;cursor:pointer;padding:0}
+.pipeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin:0 0 6px}
+.pipeline span{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px;color:var(--muted)}
+.pipeline b{display:block;color:var(--ink);font-size:13.5px}
+.tracked{display:flex;flex-wrap:wrap;gap:8px}
+.tcard{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--a10);border-radius:8px;padding:8px 12px;cursor:pointer;text-align:left;min-width:200px}
+.tcard:hover{border-color:var(--accent)} .tcard b{display:block;font-size:14px} .tcard span{font-size:12.5px;color:var(--muted)}
+.rchip{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:2px 10px;font-size:13px}
+.rchip small{color:var(--muted)} .rchip.place{border-color:var(--a10)}
+.readout{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;min-height:40px;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:center}
+.readout .when{font-weight:700}
+.readout span.k{color:var(--muted)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px 6px;margin-bottom:8px}
+.panel h3{margin:0;font-size:14px;font-weight:600;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
+.panel h3 .unit{font-weight:400;color:var(--muted);font-size:12.5px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;color:var(--muted);margin:4px 0 2px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;vertical-align:middle;margin-right:4px}
+.chart{width:100%;height:150px;display:block;touch-action:pan-y}
+.chart text{fill:var(--muted);font-size:11px}
+.empty{padding:22px 4px;color:var(--muted);font-size:13.5px}
+.panel select{min-height:28px;padding:2px 8px;font-size:13px}
+
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--soft);text-align:right;white-space:nowrap}
+th{font-weight:600;color:var(--muted);background:var(--surface);position:sticky;top:0}
+td:first-child,th:first-child{text-align:left}
+#fieldTable td:nth-child(-n+4),#fieldTable th:nth-child(-n+4),#phaseTable td:nth-child(2),#phaseTable th:nth-child(2){text-align:left}
+.note{font-size:13px;color:var(--muted);max-width:76ch;margin:10px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:15px}
+textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+.startbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:22px}
+.startbox h2{margin:0 0 6px;font-size:19px}
+.startbox ol{padding-left:20px;margin:8px 0 0}
+.startbox li{margin:6px 0;max-width:72ch}
+.hidden{display:none!important}
+@media (max-width:760px){
+  .lane{grid-template-columns:1fr auto;gap:4px 10px}
+  .lane .track{grid-column:1/-1;order:3}
+  .grid2{grid-template-columns:1fr}
+  .controls{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){.track i{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Meme Pulse</h1>
+      <p>뜨는 밈 키워드에서 장소를 추리고, 그 장소의 연령별 반응·인구·도로·대기질을 같은 시간축에 맞춰 봅니다.</p>
+    </div>
+    <div class="controls">
+      <label class="small" for="placeSel">장소</label>
+      <select id="placeSel"></select>
+      <label class="small" for="rangeSel">기간</label>
+      <select id="rangeSel">
+        <option value="1">최근 24시간</option><option value="3">3일</option>
+        <option value="7" selected>7일</option><option value="14">14일</option>
+        <option value="30">30일</option><option value="60">60일</option>
+      </select>
+      <button class="btn" id="refreshBtn" title="수집 자료를 지금 다시 읽습니다">지금 새로고침</button>
+    </div>
+    <a class="btn guidelink hidden" id="guideLink" href="guide.html" target="_blank" rel="noopener">설명서</a>
+  </header>
+
+  <div id="banners"></div>
+  <p class="small hidden" id="liveLink" style="margin:-4px 0 10px"></p>
+
+  <div id="startArea" class="hidden" style="margin-bottom:16px"></div>
+
+  <div class="lanes" id="lanes" aria-live="polite">
+    <div class="lanes-head">
+      <strong>자료 연결 상태</strong>
+      <span class="small" id="lanesSummary">자료를 읽는 중…</span>
+      <span class="small" id="countdown" style="margin-left:auto"></span>
+    </div>
+    <div id="setupStrip" class="setup hidden"></div>
+    <details class="how"><summary>자료는 어떻게 들어오나요?</summary><div id="howBody"></div></details>
+    <div id="laneRows"></div>
+  </div>
+
+
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" data-tab="linked" aria-selected="true">연결 보기</button>
+    <button role="tab" data-tab="discover" aria-selected="false">자동 발굴</button>
+    <button role="tab" data-tab="ages" aria-selected="false">연령별 반응</button>
+    <button role="tab" data-tab="hours" aria-selected="false">시간 × 장소</button>
+    <button role="tab" data-tab="field" aria-selected="false">현장 측정</button>
+    <button role="tab" data-tab="settings" aria-selected="false">설정</button>
+  </nav>
+
+  <!-- 연결 보기 -->
+  <section class="view on" id="v-linked">
+    <div class="readout" id="readout"><span class="small">그래프 위에 커서를 올리거나 터치하면 모든 그래프의 같은 시각 값이 여기에 나옵니다.</span></div>
+    <div id="panels"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="exportLinked">이 장소의 연결 자료 CSV 저장</button>
+      <span class="small">서울 도시데이터 관측 시각마다 같은 시각의 측정소 값과 그날 검색 지수를 한 줄로 묶습니다.</span>
+    </div>
+  </section>
+
+  <!-- 자동 발굴 -->
+  <section class="view" id="v-discover">
+    <p class="note" id="kwSummary" style="margin-top:0"></p>
+    <div class="pipeline">
+      <span><b>① 밈 키워드 모으기</b>블로그·유튜브 제목 급상승어, 구글 급상승 검색어, 직접 넣은 키워드</span>
+      <span><b>② 장소로 풀기</b>서울 주요 장소 이름 또는 네이버 지역 검색</span>
+      <span><b>③ 급상승 확인</b>최근 3일 블로그 글이 그 전보다 늘었나</span>
+      <span><b>④ 추적</b>두 번 이상 포착되면 인구·검색·대기질을 자동으로 붙여 추적</span>
+    </div>
+    <h3 class="sub">지금 추적 중인 장소 밈</h3>
+    <div id="trackedChips" class="tracked"></div>
+    <h3 class="sub">키워드로 찾은 장소</h3>
+    <div class="tablewrap"><table id="kwTable"></table></div>
+    <p class="note">축제·콘서트·팬미팅·사전예약처럼 주최 측이 날짜와 정원을 정한 이벤트는 밈이 아니므로 추적하지 않고 ‘행사’로 표시합니다(양성 대조군 후보). 같은 장소로 풀린 키워드는 한 장소로 묶여 추적됩니다.
+      ‘인구 확인’은 그 장소가 서울 주요 장소이고, 같은 시기 인구도 평소보다 1.4배 이상 몰렸다는 뜻입니다.</p>
+    <h3 class="sub">블로그·유튜브 제목에서 갑자기 늘어난 말</h3>
+    <div id="risingChips" class="tracked"></div>
+    <p class="note" id="risingNote"></p>
+
+    <h3 class="sub">인구로 본 급증 장소 (교차 확인용)</h3>
+    <p class="note" id="discSummary" style="margin-top:0"></p>
+    <div class="tablewrap"><table id="boardTable"></table></div>
+    <p class="note">서울 주요 장소 약 120곳을 3시간마다 훑어, 최근 4주 같은 평일/주말·시간대의 인구 중앙값보다 1.4배 이상 몰린 곳입니다. 키워드 없이 인구만 늘어난 곳은 날씨·공휴일 때문일 수 있어 추적하지 않고, 키워드로 찾은 장소와 겹치면 ‘인구 확인’ 표시에 씁니다.</p>
+    <h3 class="sub">인구 급증 기록 (최근 14일)</h3>
+    <div class="tablewrap"><table id="candTable"></table></div>
+    <h3 class="sub">구글 급상승 검색어 (최근 7일)</h3>
+    <div class="row"><label class="small"><input type="checkbox" id="trendPlaceOnly" checked> 장소와 관련된 검색어만</label></div>
+    <div class="tablewrap"><table id="trendTable"></table></div>
+  </section>
+
+  <!-- 연령별 반응 -->
+  <section class="view" id="v-ages">
+    <div class="row">
+      <label class="small" for="groupSel">검색어 그룹</label><select id="groupSel"></select>
+    </div>
+    <div class="tablewrap"><table id="ageTable"></table></div>
+    <p class="note">검색 지수는 네이버 데이터랩이 연령대마다 따로 최댓값을 100으로 맞춘 값입니다. 연령대끼리는 높이가 아니라 <b>언제 오르고 얼마나 가파른지</b>를 비교하세요.
+      방문 변화는 이 검색어 그룹에 연결된 장소의 연령별 추정 인구(인구 중앙값 × 연령 비율)로 계산합니다. 기준선은 선택 기간 첫 7일의 일평균 중앙값입니다.</p>
+    <p class="note" id="ageDefs"></p>
+  </section>
+
+  <!-- 시간 × 장소 -->
+  <section class="view" id="v-hours">
+    <div class="row">
+      <label class="small" for="hourVar">지표</label>
+      <select id="hourVar">
+        <option value="pop">생활인구 (명)</option>
+        <option value="cg">혼잡도 단계 (1 여유 ~ 4 붐빔)</option>
+        <option value="spd">도로 평균속도 (km/h)</option>
+        <option value="pm25s">PM2.5 도시데이터 (㎍/㎥)</option>
+        <option value="pm25u">PM2.5 도시대기 측정소 (㎍/㎥)</option>
+        <option value="pm25r">PM2.5 도로변 측정소 (㎍/㎥)</option>
+        <option value="dpm">ΔPM2.5 도로변 − 도시대기</option>
+        <option value="dno2">ΔNO₂ 도로변 − 도시대기 (ppb)</option>
+      </select>
+      <label class="small" for="dayType">요일</label>
+      <select id="dayType"><option value="all">전체</option><option value="wd">평일</option><option value="we">주말</option></select>
+    </div>
+    <div class="tablewrap"><table id="hourTable"></table></div>
+    <p class="note">선택 기간 동안 시간대별 평균입니다. 칸의 진하기는 같은 표 안에서의 상대 크기입니다. 괄호 안 숫자는 평균에 쓰인 관측 수입니다.</p>
+  </section>
+
+  <!-- 현장 측정 -->
+  <section class="view" id="v-field">
+    <div class="grid2">
+      <div class="card">
+        <h3>현장 기록 불러오기</h3>
+        <p class="small" style="margin:0 0 8px">CSV 파일을 고르거나 아래 칸에 붙여넣고 ‘불러오기’를 누르세요. 첫 줄은 열 이름입니다. 불러온 기록은 이 브라우저에 보관됩니다.</p>
+        <div class="row"><input type="file" id="fieldFile" accept=".csv,text/csv"><button class="btn" id="fieldTemplate">양식 CSV 저장</button></div>
+        <textarea id="fieldText" placeholder="date,site,phase,slot,start,rep,pedestrians,vehicles,pm25_sensor,note"></textarea>
+        <div class="row" style="margin-top:8px"><button class="btn primary" id="fieldLoad">불러오기</button><button class="btn" id="fieldClear">기록 지우기</button><span class="small" id="fieldMsg"></span></div>
+      </div>
+      <div class="card">
+        <h3>열 설명</h3>
+        <p class="small" style="margin:0">
+          <b>date</b> 2026-10-10 &nbsp; <b>site</b> 장소 id 또는 이름(예: worldcup, 서울숲) &nbsp; <b>phase</b> 전 / 중 / 후 &nbsp;
+          <b>slot</b> T1–T4 &nbsp; <b>start</b> 슬롯 시작 시각 16:40 &nbsp; <b>rep</b> 반복 번호 1–3 &nbsp;
+          <b>pedestrians</b> 5분 보행자 수 &nbsp; <b>vehicles</b> 5분 차량 수 &nbsp; <b>pm25_sensor</b> 휴대 센서 PM2.5 &nbsp; <b>note</b> 메모<br><br>
+          같은 날·장소·단계·슬롯의 반복값을 묶어 중앙값과 범위를 내고, 그 시각에 가장 가까운 공공 관측값(생활인구, 혼잡도, 도로속도, 측정소 PM2.5)을 옆에 붙입니다. 현장 슬롯은 ‘연결 보기’ 그래프에도 세로 띠로 표시됩니다.
+        </p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:12px">
+      <h3>SNS 게시물 수 가져오기 (인스타그램 등 API로 받지 못하는 자료)</h3>
+      <p class="small" style="margin:0 0 8px">열: <b>time</b>(2026-10-10 14:00 또는 2026-10-10) <b>place</b>(장소 id 또는 이름) <b>platform</b>(instagram 등) <b>count</b>(게시물 수) <b>keyword</b>(선택). 불러오면 ‘연결 보기’에 SNS 그래프가 추가됩니다.</p>
+      <div class="row"><input type="file" id="snsFile" accept=".csv,text/csv"><button class="btn" id="snsTemplate">양식 CSV 저장</button><button class="btn" id="snsClear">SNS 기록 지우기</button><span class="small" id="snsMsg"></span></div>
+    </div>
+    <h3 style="margin:18px 0 8px;font-size:15px">슬롯 요약 — 현장값과 같은 시각 공공 관측</h3>
+    <div class="tablewrap"><table id="fieldTable"></table></div>
+    <h3 style="margin:18px 0 8px;font-size:15px">전·중·후 비교 (슬롯별 중앙값의 차이)</h3>
+    <div class="tablewrap"><table id="phaseTable"></table></div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="exportField">슬롯 요약 CSV 저장</button></div>
+  </section>
+
+  <!-- 설정 -->
+  <section class="view" id="v-settings">
+    <div class="grid2">
+      <div class="card">
+        <h3>자료 위치</h3>
+        <p class="small" style="margin:0 0 8px">수집기가 만든 <code>data/data.js</code>의 위치입니다. 이 화면과 같은 폴더(또는 같은 GitHub Pages 사이트)라면 기본값 그대로 두세요.</p>
+        <input type="text" id="srcInput" style="width:100%" spellcheck="false">
+        <p class="small" style="margin:10px 0 4px">실시간 사이트 주소 (GitHub Pages, 예: https://아이디.github.io/meme-pulse/)</p>
+        <input type="url" id="liveInput" style="width:100%" spellcheck="false" placeholder="https://">
+        <div class="row" style="margin-top:10px">
+          <label class="small" for="intervalSel">화면 새로고침 간격</label>
+          <select id="intervalSel"><option value="1">1분</option><option value="2">2분</option><option value="5">5분</option><option value="10">10분</option><option value="30">30분</option></select>
+          <button class="btn primary" id="saveSettings">저장하고 다시 읽기</button>
+        </div>
+        <div class="row">
+          <button class="btn" id="openFileBtn">자료 파일 직접 열기</button>
+          <input type="file" id="dataFile" accept=".json,.js" class="hidden">
+          <button class="btn" id="demoBtn">가상 데모로 둘러보기</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>수집기 기록</h3>
+        <div id="runLog" class="small">자료를 읽으면 수집기가 남긴 최근 실행 기록이 나옵니다.</div>
+      </div>
+    </div>
+    <h3 style="margin:18px 0 8px;font-size:15px">자료원별 상태</h3>
+    <div class="tablewrap"><table id="statusTable"></table></div>
+    <h3 style="margin:18px 0 8px;font-size:15px">장소 설정 (collector/config.json)</h3>
+    <div class="tablewrap"><table id="placeTable"></table></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+/* ============================== 기본 설정 ============================== */
+const DEFAULT_SRC = "data/data.js";
+const SOURCES = [
+  {id:"seoul",     name:"서울 도시데이터", sub:"인구·연령·도로·날씨", cycle:15,  unit:"min"},
+  {id:"air_urban", name:"에어코리아 도시대기", sub:"PM2.5·NO₂ 1시간값", cycle:90,  unit:"min"},
+  {id:"air_road",  name:"에어코리아 도로변", sub:"PM2.5·NO₂ 1시간값",  cycle:90,  unit:"min"},
+  {id:"naver",     name:"네이버 검색 추이", sub:"연령별 일 단위 지수", cycle:36*60, unit:"day"},
+  {id:"x",         name:"X 게시물 수", sub:"선택 항목, 1시간 단위", cycle:120, unit:"min"},
+  {id:"buzz",      name:"네이버 블로그·뉴스", sub:"검색어별 하루 게시물 수", cycle:200, unit:"fetch"},
+  {id:"youtube",   name:"유튜브", sub:"최근 7일 업로드·조회수", cycle:380, unit:"fetch"},
+  {id:"instagram", name:"인스타그램 해시태그", sub:"공식 API 표본, 1시간", cycle:200, unit:"fetch"},
+  {id:"gplaces",   name:"구글 지도 리뷰", sub:"장소별 누적 리뷰 수, 하루 1회", cycle:1500, unit:"fetch"},
+  {id:"kw",        name:"밈 키워드 발굴", sub:"키워드 → 장소 자동 추리기", cycle:200, unit:"fetch"},
+  {id:"scan",      name:"주요 장소 전체 스캔", sub:"밈 후보 자동 발굴", cycle:200, unit:"min"},
+  {id:"trends",    name:"구글 급상승 검색어", sub:"한국, 인증키 불필요", cycle:60, unit:"min"},
+];
+const AGE_KEYS = ["10대","20대","30대","40대","50대+"];
+const AGE_COLORS = {"전체":"--aall","10대":"--a10","20대":"--a20","30대":"--a30","40대":"--a40","50대+":"--a50"};
+const AGE_RATE = {"10대":["10"],"20대":["20"],"30대":["30"],"40대":["40"],"50대+":["50","60","70"]};
+const H = 3600e3, DAY = 24*H, KST = 9*H;
+
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem("mp_"+k); return v==null?d:JSON.parse(v);}catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem("mp_"+k, JSON.stringify(v)); }catch(e){} }
+};
+let cfg = Object.assign({src:DEFAULT_SRC, interval:5}, store.get("cfg", {}));
+let ui = Object.assign({place:null, range:7, tab:"linked", group:null, hourVar:"pop", dayType:"all"}, store.get("ui", {}));
+let DATA = null, loadedAt = 0, loadError = "", nextLoad = 0, IDX = null;
+let FIELD = store.get("field", []);
+let SNS = store.get("sns", []);
+
+const $ = s => document.querySelector(s);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const esc = s => String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ============================== 시간 도구 (모두 한국시간) ============================== */
+const ms = t => Date.parse(t.length===10 ? t+"T00:00:00+09:00" : t+":00+09:00");
+const kd = m => new Date(m + KST);
+const pad = n => String(n).padStart(2,"0");
+const fmtDT = m => { const d=kd(m); return `${d.getUTCMonth()+1}/${d.getUTCDate()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+const fmtD = m => { const d=kd(m); return `${d.getUTCMonth()+1}/${d.getUTCDate()}`; };
+const dayKey = m => { const d=kd(m); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`; };
+const hourOf = m => kd(m).getUTCHours();
+const isWeekend = m => { const w=kd(m).getUTCDay(); return w===0||w===6; };
+function ago(m){
+  const s = Math.max(0,(Date.now()-m)/1000);
+  if (s<90) return "방금";
+  if (s<3600) return Math.round(s/60)+"분 전";
+  if (s<86400*2) return Math.round(s/3600)+"시간 전";
+  return Math.round(s/86400)+"일 전";
+}
+const median = a => { const b=a.filter(v=>v!=null&&isFinite(v)).sort((x,y)=>x-y); if(!b.length) return null; const i=b.length>>1; return b.length%2?b[i]:(b[i-1]+b[i])/2; };
+const mean = a => { const b=a.filter(v=>v!=null&&isFinite(v)); return b.length? b.reduce((x,y)=>x+y,0)/b.length : null; };
+const fx = (v,d=1) => v==null||!isFinite(v) ? "–" : (Math.abs(v)<Math.pow(10,-d)/2?0:Number(v)).toLocaleString("ko-KR",{maximumFractionDigits:d,minimumFractionDigits:0});
+
+/* ============================== 자료 읽기 ============================== */
+function loadData(manual){
+  const old = document.getElementById("dataScript");
+  if (old) old.remove();
+  try { delete window.__MEME_PULSE__; } catch(e){ window.__MEME_PULSE__ = undefined; }
+  const s = document.createElement("script");
+  s.id = "dataScript";
+  const bust = /^https?:/.test(location.protocol) || /^https?:/.test(cfg.src) ? (cfg.src.includes("?")?"&":"?")+"t="+Date.now() : "";
+  s.src = cfg.src + bust;
+  s.onload = () => {
+    const d = window.__MEME_PULSE__;
+    if (d && d.obs) { setData(d, false); loadError=""; }
+    else { loadError = "자료 파일은 열렸지만 내용이 비어 있습니다."; renderAll(); }
+  };
+  s.onerror = () => { loadError = `‘${cfg.src}’ 파일을 읽지 못했습니다.`; renderAll(); };
+  document.head.appendChild(s);
+  nextLoad = Date.now() + cfg.interval*60e3;
+  if (manual) $("#lanesSummary").textContent = "다시 읽는 중…";
+}
+function setData(d, isDemo){
+  DATA = d; DATA.demo = !!(isDemo || d.demo); loadedAt = Date.now();
+  IDX = buildIndex(DATA);
+  const places = DATA.places||[];
+  if (!places.find(p=>p.id===ui.place)) ui.place = (places.find(p=>p.kind==="keyword")||places[0])?.id || null;
+  renderAll();
+}
+function buildIndex(d){
+  const by = {};
+  for (const r of d.obs||[]) {
+    const k = r.src+"|"+r.place; (by[k] ||= []).push(r);
+    r._m = ms(r.t);
+  }
+  for (const k in by) by[k].sort((a,b)=>a._m-b._m);
+  return by;
+}
+const series = (src, place) => (IDX && IDX[src+"|"+place]) || [];
+function nowRef(){
+  if (DATA && DATA.demo) return ms(DATA.generatedAt);
+  return Date.now();
+}
+function windowRange(){
+  let end = nowRef();
+  if (IDX) for (const k in IDX){ const a=IDX[k]; const l=a[a.length-1]; if (l && l._m>end) end=l._m; }
+  return [end - ui.range*DAY, end];
+}
+
+/* ============================== 상단: 연결 상태 레인 ============================== */
+function latestFor(srcId){
+  if (!DATA) return null;
+  if (srcId==="naver"){
+    let last=null;
+    for (const g of Object.values(DATA.search||{})) for (const arr of Object.values(g.ages||{})) { const p=arr[arr.length-1]; if(p){ const m=ms(p[0]); if(last==null||m>last) last=m; } }
+    return last;
+  }
+  if (["buzz","youtube","instagram","gplaces","kw"].includes(srcId)){ const l=DATA.status?.[srcId]?.lastSuccess; return l? ms(l) : null; }
+  if (srcId==="scan") return DATA.discovery?.scannedAt ? ms(DATA.discovery.scannedAt) : null;
+  if (srcId==="trends"){ const t=(DATA.trends||[])[0]; return t? ms(t.last) : null; }
+  if (srcId==="x"){
+    let last=null;
+    for (const q of Object.values(DATA.x||{})) { const p=(q.rows||[]).slice(-1)[0]; if(p){ const m=ms(p[0]); if(last==null||m>last) last=m; } }
+    return last;
+  }
+  let last=null;
+  for (const r of DATA.obs||[]) if (r.src===srcId && (last==null||r._m>last)) last=r._m;
+  return last;
+}
+/* ============================== 자료원별 설정 안내 (화면 곳곳에 쓰임) ============================== */
+const SECRET_STEP = n => `GitHub 저장소 › Settings › Secrets and variables › Actions › New repository secret 에서 이름 <code>${n}</code>으로 붙여넣기`;
+const HELP = {
+  seoul:{level:"기본", time:"신청 후 하루 안팎", steps:[
+    "서울 열린데이터광장(data.seoul.go.kr)에 가입하고 로그인",
+    "‘서울시 실시간 도시데이터’를 검색해 인증키 신청",
+    SECRET_STEP("SEOUL_API_KEY")],
+    note:"이 키 하나로 추적 장소의 인구·연령·도로·날씨와 주요 장소 전체 스캔이 함께 켜집니다."},
+  scan:{level:"기본", time:"서울 키가 있으면 자동", steps:["서울 도시데이터 인증키(SEOUL_API_KEY)를 등록하면 수집기가 3시간마다 알아서 훑습니다."],
+    note:"키워드로 찾은 장소를 인구로 교차 확인하는 데 씁니다. 평소 대비 배율은 같은 요일·시간대 기록이 3번 쌓이는 1~3주 뒤부터 계산됩니다. 그전에는 비어 있어도 정상입니다."},
+  air_urban:{level:"권장", time:"자동 승인, 작동까지 1~2시간", steps:[
+    "공공데이터포털(data.go.kr)에 가입하고 로그인",
+    "‘한국환경공단_에어코리아_대기오염정보’ 활용신청",
+    "마이페이지 › 데이터활용 › 오픈API에서 일반 인증키(Decoding) 복사",
+    SECRET_STEP("AIRKOREA_API_KEY")]},
+  air_road:{level:"권장", time:"에어코리아 키로 함께", steps:["에어코리아 키가 등록되면 자동으로 들어옵니다.", "장소마다 가까운 도로변 측정소 이름을 collector/config.json의 air_roadside에 적어 두세요."],
+    note:"도로변 − 도시대기 차이가 교통 기여 지표(ΔNO₂)입니다."},
+  naver:{level:"기본", time:"5분", steps:[
+    "네이버 개발자센터(developers.naver.com) › Application › 애플리케이션 등록",
+    "사용 API에 ‘데이터랩(검색어트렌드)’와 ‘검색’ 둘 다 추가, 환경은 WEB에 http://localhost",
+    SECRET_STEP("NAVER_CLIENT_ID") + ", 같은 방법으로 <code>NAVER_CLIENT_SECRET</code>"],
+    note:"연령별 검색 추이는 연령별 반응 분석의 핵심 자료입니다."},
+  buzz:{level:"기본", time:"1분", steps:["네이버 애플리케이션 › API 설정 › 사용 API에 ‘검색’을 추가하고 저장. 키는 그대로 씁니다."],
+    note:"블로그 후기 수는 방문 반응을 가장 직접적으로 보여 주는 지표입니다."},
+  youtube:{level:"권장", time:"5분, 무료", steps:[
+    "console.cloud.google.com에서 새 프로젝트 만들기",
+    "API 및 서비스 › 라이브러리 › ‘YouTube Data API v3’ 사용 설정",
+    "사용자 인증 정보 › API 키 만들기",
+    SECRET_STEP("YOUTUBE_API_KEY")]},
+  instagram:{level:"선택", time:"30분 이상", steps:[
+    "인스타그램 계정을 프로페셔널 계정으로 전환하고 페이스북 페이지에 연결",
+    "developers.facebook.com에서 비즈니스 앱을 만들고 Instagram Graph API 추가",
+    "Graph API 탐색기에서 토큰과 IG_USER_ID를 얻어 Secret에 등록 (자세한 순서: README 3-2장 ④)",
+    "collector/config.json의 instagram_hashtags에 해시태그 적기"],
+    note:"최근 24시간 게시물의 표본만 오므로 보조 지표로 쓰세요."},
+  gplaces:{level:"선택", time:"10분, 결제 계정 필요", steps:[
+    "유튜브와 같은 구글 클라우드 프로젝트에서 ‘Places API (New)’ 사용 설정",
+    "결제 계정 연결, 예산 알림 설정 권장",
+    SECRET_STEP("GOOGLE_MAPS_API_KEY"),
+    "collector/config.json의 google_places에 장소 검색 문장 적기"]},
+  x:{level:"선택", time:"유료", steps:["X 개발자 포털에서 게시물 수 조회가 되는 유료 이용 신청", SECRET_STEP("X_BEARER_TOKEN")]},
+  kw:{level:"기본", time:"네이버 앱이 있으면 자동", steps:["네이버 애플리케이션에 ‘데이터랩(검색어트렌드)’와 ‘검색’이 모두 추가되어 있으면 수집기가 3시간마다 알아서 돌립니다.", "꼭 추적할 밈은 collector/config.json의 keyword_discovery › seed_keywords에 적으세요.", "밈을 찾는 기준 검색어(핫플, 팝업스토어, 성지순례 등)는 seed_queries에서 바꿀 수 있습니다."],
+    note:"장소를 미리 정하지 않아도 밈 키워드에서 장소를 스스로 추립니다."},
+  trends:{level:"기본", time:"설정 없음", steps:["인증키가 필요 없습니다. 수집기가 한 번이라도 돌면 채워집니다."]},
+};
+const HINTS = [
+  [/인증키 없음/, "아직 이 자료의 키가 등록되지 않았습니다. 아래 순서대로 등록하면 다음 수집(최대 30분 뒤)부터 들어옵니다."],
+  [/INFO-100|유효하지 않/, "키가 틀렸습니다. 앞뒤 공백 없이 다시 복사해 Secret을 고쳐 주세요."],
+  [/INFO-200|CITYDATA 없음|해당하는 데이터가 없/, "장소 이름이 공식 목록과 다릅니다. config.json의 citydata_area를 ‘주요 장소 목록’ 엑셀과 똑같이 고쳐 주세요."],
+  [/SERVICE_KEY_IS_NOT_REGISTERED/, "신청 직후에는 1~2시간 뒤부터 작동합니다. 계속되면 Decoding 키로 바꿔 넣어 보세요."],
+  [/측정소 이름/, "측정소 이름이 틀렸습니다. 에어코리아 누리집의 측정소 정보에서 정확한 이름을 확인하세요."],
+  [/HTTP 401|024/, "네이버 앱에 이 API가 추가되지 않았거나 키가 틀렸습니다."],
+  [/HTTP 429|한도|quota/i, "하루 호출 한도를 넘었습니다. config.json에서 갱신 간격을 늘리세요(README 9장)."],
+  [/#190/, "인스타그램 토큰이 만료됐습니다. 새 토큰으로 IG_ACCESS_TOKEN을 바꿔 주세요."],
+  [/#10\b|#200/, "인스타그램 권한 문제입니다. README 3-2장 ④의 권한 목록을 확인하세요."],
+  [/billing|PERMISSION_DENIED/, "구글 클라우드에서 Places API 사용 설정과 결제 계정 연결을 확인하세요."],
+];
+const OPEN = new Set();
+function helpBlock(id, msg){
+  const h = HELP[id]; if (!h) return "";
+  const hint = msg ? ((HINTS.find(([re])=>re.test(msg))||[])[1] || "위 수집기 메시지를 README.txt 9장 ‘문제가 생겼을 때’에서 찾아보세요. 이 자료가 없어도 나머지는 계속 수집됩니다.") : "";
+  return `<div class="help">${hint?`<p class="hint">${esc(hint)}</p>`:""}
+    <ol>${h.steps.map(t=>`<li>${t}</li>`).join("")}</ol>
+    <p class="small" style="margin:4px 0 0">${h.level} 항목 · ${esc(h.time)}${h.note?` — ${esc(h.note)}`:""}</p></div>`;
+}
+function whereAmI(){
+  const here = location.hostname;
+  if (/github\.io$/.test(here)) return {k:"site", t:"내 Meme Pulse 사이트"};
+  if (location.protocol==="file:") return {k:"file", t:"내 컴퓨터의 파일"};
+  if (/claude/.test(here) || window.claude) return {k:"claude", t:"Claude 게시 페이지"};
+  return {k:"other", t:here};
+}
+const FLOW_HTML = `<div class="flow">
+    <div class="fbox"><b>공식 API</b><span>서울시 · 에어코리아 · 네이버 · 유튜브 · 구글 · 인스타그램</span></div>
+    <div class="farrow">인증키로 접속</div>
+    <div class="fbox main"><b>수집기</b><span>GitHub 서버에서 30분마다 스스로 실행. 내 컴퓨터가 꺼져 있어도 돕니다.</span></div>
+    <div class="farrow">정리·저장</div>
+    <div class="fbox"><b>자료 파일</b><span>중복 정리, 60일 보관</span></div>
+    <div class="farrow">읽기만 함</div>
+    <div class="fbox"><b>내 Meme Pulse 사이트</b><span>github.io 주소, 열어 두면 5분마다 반영</span></div>
+  </div>
+  <p class="small" style="margin:8px 0 0;max-width:80ch">장소를 미리 정할 필요는 없습니다. 수집기가 블로그·유튜브 제목과 급상승 검색어에서 밈 키워드를 찾고, 그 키워드가 가리키는 서울의 장소를 스스로 추려 추적합니다. 자료를 모으는 것은 수집기 하나뿐입니다. Claude는 대화할 때만 작동해 대신 모으지 않고, Claude 게시 페이지는 보안 정책상 외부 자료를 읽지 못해 데모·파일 열기·CSV 분석만 됩니다.
+  처음 한 번 인증키를 GitHub에 등록하면 그 뒤로는 로그인이나 조작이 필요 없습니다.</p>`;
+
+/* 설정 진행도: 수집기가 남긴 상태로 자동 판정 */
+const SETUP = [
+  {id:"collector", t:"수집기 켜기 (GitHub)", ok:()=>DATA && !DATA.demo && !!DATA.generatedAt},
+  {id:"seoul", t:"서울 도시데이터 키", ok:()=>DATA?.status?.seoul?.ok},
+  {id:"naver", t:"네이버 데이터랩", ok:()=>DATA?.status?.naver?.ok},
+  {id:"buzz", t:"네이버 검색 API", ok:()=>DATA?.status?.buzz?.ok},
+  {id:"air_urban", t:"에어코리아 키", ok:()=>DATA?.status?.air_urban?.ok},
+  {id:"youtube", t:"유튜브 키", ok:()=>DATA?.status?.youtube?.ok},
+];
+function renderSetup(){
+  const box = $("#setupStrip");
+  if (!DATA || DATA.demo) { box.classList.add("hidden"); return; }
+  const done = SETUP.filter(s=>s.ok());
+  if (done.length===SETUP.length || store.get("setupHidden",false)) { box.classList.add("hidden"); return; }
+  const next = SETUP.find(s=>!s.ok());
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="steps">${SETUP.map(s=>`<span class="${s.ok()?"on":s===next?"next":""}" title="${esc(s.t)}"></span>`).join("")}</div>
+    <div><b>기본 연결 ${done.length}/${SETUP.length}</b> <span class="small">다음 할 일: ${esc(next.t)}</span></div>
+    <button class="btn" id="setupGo">방법 보기</button><button class="linkbtn small" id="setupHide">숨기기</button>`;
+  $("#setupGo").onclick = ()=>{ OPEN.add(next.id); renderLanes(); document.querySelector(`[data-lane="${next.id}"]`)?.scrollIntoView({behavior:"smooth",block:"center"}); };
+  $("#setupHide").onclick = ()=>{ store.set("setupHidden",true); renderSetup(); };
+}
+
+function renderLanes(){
+  const rows = $("#laneRows"); rows.innerHTML = "";
+  document.body.classList.toggle("nodata", !DATA);
+  if (!DATA){ $("#lanesSummary").textContent = "아직 연결된 자료가 없습니다. 위에서 할 일을 고르세요."; $("#setupStrip").classList.add("hidden"); return; }
+  const st = (DATA&&DATA.status)||{};
+  let fresh=0, used=0; const extra=[];
+  for (const s of SOURCES){
+    const hidden = (s.id==="x" && !st.x && !(DATA&&DATA.x&&Object.keys(DATA.x).length)) ||
+                   (["youtube","instagram","gplaces"].includes(s.id) && !st[s.id]);
+    if (hidden) { extra.push(s); continue; }
+    used++;
+    const last = latestFor(s.id);
+    const info = st[s.id] || {};
+    let cls="none", label="자료 없음", pct=0;
+    if (last!=null){
+      const age = (nowRef()-last)/60e3, cyc = s.cycle;
+      pct = Math.min(100, age/(cyc*3)*100);
+      if (age <= cyc) { cls="fresh"; label="최신"; fresh++; }
+      else if (age <= cyc*3) { cls="late"; label="지연"; }
+      else { cls="stale"; label="오래됨"; }
+    }
+    const trouble = cls!=="fresh" || info.ok===false;
+    const open = OPEN.has(s.id);
+    const div = document.createElement("div"); div.className="lane"; div.dataset.lane=s.id;
+    const obsText = last==null ? "–" : (s.unit==="day" ? `${fmtD(last)}까지` : s.unit==="fetch" ? `${fmtDT(last)} 수집` : fmtDT(last));
+    const agoText = last==null ? "" : (DATA.demo ? "" : ` · ${s.unit==="day"?"수집 "+(info.lastSuccess?ago(ms(info.lastSuccess)):"–"):ago(last)}`);
+    const helpBtn = (trouble && DATA && !DATA.demo) || open ? `<button class="linkbtn small" data-help="${s.id}" aria-expanded="${open}">${open?"닫기":(last==null?"연결 방법":"해결 방법")}</button>` : "";
+    div.innerHTML = `<div class="nm">${esc(s.name)}<small>${esc(s.sub)}</small></div>
+      <div class="tm">${obsText}<span class="small">${agoText}</span></div>
+      <div class="track" title="막대가 짧을수록 최신입니다. 눈금은 정상 갱신 주기입니다."><i style="width:${last==null?100:Math.max(3,pct)}%;background:var(--${cls==="none"?"stale":cls})"></i><b style="left:33.3%"></b></div>
+      <div class="st ${cls}">${label}<br>${helpBtn}</div>
+      ${info.ok===false && info.msg ? `<div class="msg">수집기 메시지: ${esc(info.msg)}</div>`:""}
+      ${open ? helpBlock(s.id, info.ok===false?info.msg:"") : ""}`;
+    rows.appendChild(div);
+  }
+  if (extra.length && DATA && !DATA.demo){
+    const div = document.createElement("div"); div.className="lane extra";
+    div.innerHTML = `<div class="nm" style="grid-column:1/-1">더 연결할 수 있는 자료 <small>필요할 때 켜세요. 없어도 나머지는 모두 작동합니다.</small>
+      <div class="chips">${extra.map(s=>`<button class="chip ${OPEN.has(s.id)?"on":""}" data-help="${s.id}">${esc(s.name)} <span>${HELP[s.id]?.level||""}</span></button>`).join("")}</div></div>
+      ${extra.filter(s=>OPEN.has(s.id)).map(s=>`<div style="grid-column:1/-1"><b style="font-size:13.5px">${esc(s.name)}</b>${helpBlock(s.id,"")}</div>`).join("")}`;
+    rows.appendChild(div);
+  }
+  rows.querySelectorAll("[data-help]").forEach(b=>b.onclick=()=>{ const id=b.dataset.help; OPEN.has(id)?OPEN.delete(id):OPEN.add(id); renderLanes(); });
+  const sum = $("#lanesSummary");
+  if (!DATA) sum.textContent = loadError || "자료를 읽는 중…";
+  else sum.textContent = `${used}개 자료원 중 ${fresh}개 최신 · 수집기 마지막 실행 ${DATA.generatedAt?fmtDT(ms(DATA.generatedAt)):"–"} · 화면이 읽은 시각 ${fmtDT(loadedAt)}`;
+  renderSetup();
+}
+function tickCountdown(){
+  const left = Math.max(0, nextLoad - Date.now());
+  if (!isFinite(nextLoad)) { $("#countdown").textContent = "직접 연 파일은 자동으로 다시 읽지 않습니다"; return; }
+  $("#countdown").textContent = DATA && DATA.demo ? "데모 자료는 자동으로 다시 읽지 않습니다" : `다음 새로고침 ${Math.floor(left/60e3)}:${pad(Math.floor(left/1e3)%60)}`;
+  if (left<=0 && !(DATA&&DATA.demo)) loadData(false);
+}
+
+/* ============================== 배너 · 첫 화면 ============================== */
+function renderBanners(){
+  const b = $("#banners"); b.innerHTML="";
+  const where = whereAmI();
+  const ll = $("#liveLink");
+  if (cfg.live && !location.href.startsWith(cfg.live)) { ll.classList.remove("hidden"); ll.innerHTML = `실시간 자료는 <a href="${esc(cfg.live)}" target="_blank" rel="noopener">내 Meme Pulse 사이트</a>에서 계속 갱신됩니다.`; }
+  else ll.classList.add("hidden");
+  if (DATA && DATA.demo) b.innerHTML += `<div class="banner demo"><b>가상 데모 자료입니다.</b> 화면 사용법을 익히기 위해 만든 숫자이며 실제 관측이 아닙니다. 그래프에 커서를 올려 보고, 탭을 하나씩 눌러 보세요. <button class="btn" id="leaveDemo" style="margin-left:6px">데모 끄고 연결 시작</button></div>`;
+  if (DATA && !DATA.demo && loadError) b.innerHTML += `<div class="banner err"><b>새 자료를 읽지 못했습니다.</b> ${esc(loadError)} 화면에는 ${fmtDT(loadedAt)}에 읽은 자료가 남아 있습니다.</div>`;
+  if (DATA && !DATA.demo && DATA.generatedAt && Date.now()-ms(DATA.generatedAt) > 3*H && isFinite(nextLoad))
+    b.innerHTML += `<div class="banner err"><b>수집기가 ${ago(ms(DATA.generatedAt)).replace(" 전","")} 넘게 실행되지 않았습니다.</b> GitHub 저장소의 Actions 탭에서 마지막 실행을 확인하세요. 저장소에 60일 동안 변경이 없으면 GitHub가 예약 실행을 멈추며, 그럴 때는 Actions 탭에서 ‘Enable workflow’를 누르면 다시 시작합니다.</div>`;
+  const lv = $("#leaveDemo"); if (lv) lv.onclick = ()=>{ DATA=null; IDX=null; loadData(true); renderAll(); };
+  const start = $("#startArea");
+  if (!DATA){
+    start.classList.remove("hidden");
+    const note = {claude:"이 페이지는 Claude에 게시된 미리보기라 외부 자료를 직접 읽지 못합니다.", file:"같은 폴더에서 수집 자료(data/data.js)를 찾지 못했습니다.", site:"사이트는 열렸지만 아직 수집 자료가 없습니다. Actions 탭에서 수집기를 한 번 실행하세요.", other:"수집 자료(data/data.js)를 찾지 못했습니다."}[where.k];
+    start.innerHTML = `<div class="startbox">
+      <h2>처음 오셨나요?</h2>
+      <p class="small" style="margin:0 0 14px">${esc(note)} 아래에서 할 일을 고르세요.</p>
+      <div class="choices">
+        <button class="choice" id="demoStart"><b>먼저 둘러보기</b><span>가상 데모 자료로 모든 화면을 바로 봅니다. 1분.</span></button>
+        <button class="choice" id="setupStart" aria-expanded="false"><b>자동 수집 연결하기</b><span>한 번 설정하면 컴퓨터를 꺼 둬도 30분마다 모입니다. 30분 + 키 승인 대기.</span></button>
+        <button class="choice" id="fileStart"><b>받아 둔 자료 열기</b><span>수집기가 만든 history.json이나 data.js를 엽니다.</span></button>
+      </div>
+      ${cfg.live? `<p class="small" style="margin:12px 0 0">이미 연결했다면 <a href="${esc(cfg.live)}" target="_blank" rel="noopener">내 Meme Pulse 사이트</a>에서 실시간 자료를 보세요.</p>`:""}
+      <div id="setupSteps" class="hidden">
+        <h3 class="sub">자료는 이렇게 들어옵니다</h3>${FLOW_HTML}
+        <h3 class="sub">연결 순서</h3>
+        <ol class="bigsteps">
+          <li><b>인증키 신청</b> 서울 열린데이터광장, 공공데이터포털(에어코리아), 네이버 개발자센터. 승인을 기다리는 동안 다음 단계를 하세요.
+            <details><summary>기관별 방법</summary>${["seoul","air_urban","naver","youtube"].map(id=>`<p class="small" style="margin:8px 0 0"><b>${esc(SOURCES.find(s=>s.id===id).name)}</b></p>${helpBlock(id,"")}`).join("")}</details></li>
+          <li><b>GitHub에 올리기</b> github.com에서 새 저장소(Public)를 만들고 받은 zip의 압축을 푼 파일을 전부 끌어다 놓습니다. 숨김 폴더 <code>.github</code>까지 올라갔는지 확인하세요.</li>
+          <li><b>권한과 키 등록</b> Settings › Actions › General에서 Workflow permissions를 Read and write로, Settings › Secrets and variables › Actions에 받은 키를 등록합니다.</li>
+          <li><b>첫 수집 실행</b> Actions 탭 › Meme Pulse 자동 수집 › Run workflow. 1~2분 뒤 초록 체크가 뜨면 성공입니다.</li>
+          <li><b>사이트 켜기</b> Settings › Pages에서 Branch를 gh-pages로 저장하면 몇 분 뒤 내 사이트 주소가 생깁니다. 그 주소를 즐겨찾기하고, 아래 칸에도 넣어 두면 이 화면에서 바로 이동할 수 있습니다.
+            <div class="row" style="margin-top:8px"><input type="url" id="liveQuick" placeholder="https://아이디.github.io/meme-pulse/" style="flex:1;min-width:220px" value="${esc(cfg.live||"")}"><button class="btn" id="liveQuickSave">저장</button></div></li>
+        </ol>
+        <p class="small">연결한 뒤에는 이 화면 맨 위 ‘자료 연결 상태’가 자료원마다 상태를 보여 주고, 문제가 있으면 그 줄에 해결 방법이 나타납니다. 더 자세한 설명은 <a href="${whereAmI().k==="claude"?"https://claude.ai/artifact/3KX1Kfb4xcbSJrMxAwLywA":"guide.html"}" target="_blank" rel="noopener">설명서</a>에 있습니다.</p>
+      </div></div>`;
+    $("#demoStart").onclick = startDemo;
+    $("#fileStart").onclick = ()=>$("#dataFile").click();
+    $("#setupStart").onclick = e=>{ const s=$("#setupSteps"); s.classList.toggle("hidden"); e.currentTarget.setAttribute("aria-expanded", String(!s.classList.contains("hidden"))); };
+    $("#liveQuickSave").onclick = ()=>{ cfg.live=$("#liveQuick").value.trim(); store.set("cfg",cfg); renderBanners(); };
+  } else { start.classList.add("hidden"); start.innerHTML=""; }
+}
+
+/* ============================== 선택 상자 ============================== */
+function renderSelectors(){
+  const ps = $("#placeSel"); ps.innerHTML="";
+  const groupsOf = [["keyword","키워드로 찾은 장소 밈"],["pinned","고정 장소 (현장 실험지)"],["population","인구 급증 장소"]];
+  for (const [k,label] of groupsOf){
+    const ps2 = (DATA?.places||[]).filter(p=>(p.kind||(p.auto?"population":"pinned"))===k);
+    if (!ps2.length) continue;
+    const og = document.createElement("optgroup"); og.label = label;
+    ps2.forEach(p=>og.appendChild(new Option(p.label, p.id, false, p.id===ui.place)));
+    ps.appendChild(og);
+  }
+  $("#rangeSel").value = String(ui.range);
+  const gs = $("#groupSel"); gs.innerHTML="";
+  const groups = Object.keys(DATA?.search||{});
+  if (!groups.includes(ui.group)) ui.group = groups.find(g=>DATA.search[g].place===ui.place) || groups[0] || null;
+  for (const g of groups) gs.add(new Option(g, g, false, g===ui.group));
+  $("#hourVar").value = ui.hourVar; $("#dayType").value = ui.dayType;
+  $("#srcInput").value = cfg.src; $("#intervalSel").value = String(cfg.interval); $("#liveInput").value = cfg.live||"";
+}
+
+/* ============================== SVG 그래프 (시간축 공유 + 커서 동기화) ============================== */
+const PANELS = [];
+let CURSOR = null;
+function fieldMarks(place){
+  return FIELD.filter(r=>r._place===place && r._m).map(r=>r._m);
+}
+function drawPanel(host, o){
+  // o: {title, unit, series:[{name,color,pts:[[m,v]],gap}], x0, x1, zero, extra}
+  const box = document.createElement("div"); box.className="panel";
+  const hasData = o.series.some(s=>s.pts.some(p=>p[1]!=null));
+  box.innerHTML = `<h3>${esc(o.title)} <span class="unit">${esc(o.unit||"")}</span>${o.extra||""}</h3>
+    <div class="legend">${o.series.map(s=>`<span><i style="background:${s.color};${s.dash?"opacity:.6":""}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+  host.appendChild(box);
+  if (!hasData){
+    const lane = o.help && latestFor(o.help)==null && DATA && !DATA.demo;
+    box.insertAdjacentHTML("beforeend", `<div class="empty">${esc(o.empty||"선택한 기간에 자료가 없습니다.")}${lane?` <button class="linkbtn" data-openhelp="${o.help}">연결 방법 보기</button>`:""}</div>`);
+    const b = box.querySelector("[data-openhelp]");
+    if (b) b.onclick = ()=>{ OPEN.add(o.help); renderLanes(); document.querySelector(`[data-lane="${o.help}"]`)?.scrollIntoView({behavior:"smooth",block:"center"}); };
+    return;
+  }
+  const W = Math.max(300, box.clientWidth-24), Hh = 150, L=48, R=10, T=8, B=22;
+  let lo=Infinity, hi=-Infinity;
+  for (const s of o.series) for (const [m,v] of s.pts) if (v!=null && m>=o.x0 && m<=o.x1){ lo=Math.min(lo,v); hi=Math.max(hi,v); }
+  if (!isFinite(lo)) { lo=0; hi=1; }
+  if (o.zero && lo>0) lo=0;
+  if (o.symmetric){ const a=Math.max(Math.abs(lo),Math.abs(hi)); lo=-a; hi=a; }
+  if (hi===lo){ hi+=1; lo-=o.zero?0:1; }
+  const padY=(hi-lo)*.08; hi+=padY; if(!o.zero||lo<0) lo-=padY;
+  const X = m => L + (m-o.x0)/(o.x1-o.x0)*(W-L-R);
+  const Y = v => T + (1-(v-lo)/(hi-lo))*(Hh-T-B);
+  const NS="http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS,"svg"); svg.setAttribute("class","chart"); svg.setAttribute("viewBox",`0 0 ${W} ${Hh}`); svg.setAttribute("preserveAspectRatio","none");
+  svg.setAttribute("role","img"); svg.setAttribute("aria-label", o.title+" 그래프");
+  let g = "";
+  // 격자·축
+  const step = niceStep((hi-lo)/4);
+  for (let v=Math.ceil(lo/step)*step; v<=hi; v+=step){ g+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="${css("--soft")}"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end">${fx(v, step<1?2:0)}</text>`; }
+  if (lo<0&&hi>0) g+=`<line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="${css("--muted")}" stroke-width="1"/>`;
+  const span = o.x1-o.x0, tstep = span<=1.1*DAY?6*H: span<=3.1*DAY?12*H: span<=15*DAY?DAY: span<=31*DAY?3*DAY: 7*DAY;
+  let t0 = Math.ceil((o.x0+KST)/tstep)*tstep-KST;
+  for (let t=t0; t<=o.x1; t+=tstep){ g+=`<line x1="${X(t)}" x2="${X(t)}" y1="${T}" y2="${Hh-B}" stroke="${css("--soft")}"/><text x="${X(t)}" y="${Hh-6}" text-anchor="middle">${tstep<DAY && hourOf(t)!==0 ? pad(hourOf(t))+"시" : fmtD(t)}</text>`; }
+  // 현장 슬롯 띠
+  for (const m of o.marks||[]) if (m>=o.x0&&m<=o.x1) g+=`<rect x="${X(m)-2}" y="${T}" width="${Math.max(4,X(m+30*60e3)-X(m))}" height="${Hh-T-B}" fill="${css("--late")}" opacity=".22"><title>현장 측정 ${fmtDT(m)}</title></rect>`;
+  // 선
+  for (const s of o.series){
+    let d="", pen=false, prev=null;
+    for (const [m,v] of s.pts){
+      if (m<o.x0-DAY||m>o.x1+DAY) continue;
+      if (v==null){ pen=false; continue; }
+      if (prev!=null && m-prev > (s.gap||3*H)) pen=false;
+      d += (pen?"L":"M")+X(m).toFixed(1)+","+Y(v).toFixed(1); pen=true; prev=m;
+    }
+    g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width||1.8}" ${s.dash?'stroke-dasharray="4 3"':""} stroke-linejoin="round" vector-effect="non-scaling-stroke"/>`;
+  }
+  g += `<line class="cur" x1="-10" x2="-10" y1="${T}" y2="${Hh-B}" stroke="${css("--ink")}" stroke-width="1" opacity=".6"/><g class="dots"></g>`;
+  g += `<rect x="${L}" y="0" width="${W-L-R}" height="${Hh}" fill="transparent" class="hit"/>`;
+  svg.innerHTML = g;
+  clipPath(svg, L, T, W-L-R, Hh-T-B);
+  box.appendChild(svg);
+  const P = {svg, o, X, Y, L, W, R};
+  PANELS.push(P);
+  const hit = svg.querySelector(".hit");
+  const move = ev => {
+    const r = svg.getBoundingClientRect();
+    const cx = ((ev.touches?ev.touches[0].clientX:ev.clientX) - r.left) * (W/r.width);
+    setCursor(o.x0 + (cx-L)/(W-L-R)*(o.x1-o.x0));
+  };
+  hit.addEventListener("mousemove", move); hit.addEventListener("touchstart", move, {passive:true}); hit.addEventListener("touchmove", move, {passive:true});
+}
+function clipPath(svg,x,y,w,h){ /* 선이 축 밖으로 나가지 않게 */
+  const id="c"+Math.random().toString(36).slice(2,8);
+  svg.insertAdjacentHTML("afterbegin", `<defs><clipPath id="${id}"><rect x="${x}" y="${y-2}" width="${w}" height="${h+4}"/></clipPath></defs>`);
+  svg.querySelectorAll("path").forEach(p=>p.setAttribute("clip-path",`url(#${id})`));
+}
+function niceStep(raw){ const p=Math.pow(10,Math.floor(Math.log10(raw||1))); const f=raw/p; return (f<1.5?1:f<3?2:f<7?5:10)*p; }
+function nearest(pts, m, tol){
+  let best=null, bd=Infinity;
+  for (const p of pts){ if (p[1]==null) continue; const d=Math.abs(p[0]-m); if (d<bd){bd=d;best=p;} }
+  return best && bd<=tol ? best : null;
+}
+function setCursor(m){
+  CURSOR = m;
+  const parts = [`<span class="when">${fmtDT(m)}</span>`];
+  for (const P of PANELS){
+    const {svg,o,X,Y} = P;
+    svg.querySelector(".cur").setAttribute("x1",X(m)); svg.querySelector(".cur").setAttribute("x2",X(m));
+    let dots="";
+    const vals=[];
+    for (const s of o.series){
+      const p = nearest(s.pts, m, s.tol || 45*60e3);
+      if (p){ dots+=`<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="3.2" fill="${s.color}"/>`; vals.push(`<span><span class="k">${esc(s.short||s.name)}</span> ${fx(p[1], o.digits??1)}</span>`); }
+    }
+    svg.querySelector(".dots").innerHTML = dots;
+    if (vals.length) parts.push(`<span style="color:var(--muted)">${esc(o.short||o.title)}:</span>`+vals.join(" "));
+  }
+  $("#readout").innerHTML = parts.join("");
+}
+
+/* ============================== 연결 보기 ============================== */
+function ageColor(a){ return css(AGE_COLORS[a]); }
+function renderLinked(){
+  const host = $("#panels"); host.innerHTML=""; PANELS.length=0;
+  if (!DATA || !ui.place) return;
+  const P0 = placeObj(ui.place);
+  if (P0) host.insertAdjacentHTML("beforeend", `<p class="small" style="margin:0 0 8px">${P0.kind==="keyword"?`밈 키워드 <b>${esc((P0.keywords||[]).join(", "))}</b>에서 찾은 장소`:P0.kind==="population"?"인구 급증으로 찾은 장소":"고정 장소"}${P0.addr?` · ${esc(P0.addr)}`:""}${P0.citydata_name?` · 실시간 인구: ${esc(P0.citydata_name)}`:""}${P0.air_urban?` · 대기 측정소: ${esc(P0.air_urban)}`:""}${P0.since?` · ${fmtD(ms(P0.since))}부터 추적`:""}</p>`);
+  const [x0,x1] = windowRange();
+  const place = ui.place;
+  const marks = fieldMarks(place);
+  const seoul = series("seoul", place), au = series("air_urban", place), ar = series("air_road", place);
+
+  // 1. 검색
+  const groups = Object.entries(DATA.search||{}).filter(([k,g])=>g.place===place);
+  let gName = groups.find(([k])=>k===ui.group)?.[0] || groups[0]?.[0];
+  const g = gName ? DATA.search[gName] : null;
+  const sel = groups.length>1 ? `<select id="linkGroup">${groups.map(([k])=>`<option ${k===gName?"selected":""}>${esc(k)}</option>`).join("")}</select>` : (gName?`<span class="unit">${esc(gName)}: ${esc((g.keywords||[]).join(", "))}</span>`:"");
+  drawPanel(host, {help:"naver", title:"검색 관심도", short:"검색", unit:"연령대별 0–100 (각자 최댓값=100)", x0,x1, marks, extra:sel, digits:0,
+    empty: gName? "선택한 기간에 검색 자료가 없습니다." : "이 장소에 연결된 검색어 그룹이 없습니다. collector/config.json의 keyword_groups에 place를 지정하세요.",
+    series: g ? ["전체",...AGE_KEYS].filter(a=>g.ages?.[a]).map(a=>({name:a, color:ageColor(a), width:a==="전체"?2.4:1.6, dash:a==="전체", gap:2*DAY, tol:13*H,
+      pts:g.ages[a].map(([d,v])=>[ms(d)+12*H, v])})) : []});
+  const lg = $("#linkGroup"); if (lg) lg.onchange = e=>{ ui.group=e.target.value; saveUi(); renderLinked(); };
+
+  // 2. 인구 (연령별 추정)
+  const popSeries = [{name:"전체", color:css("--aall"), dash:true, width:2.2, pts:seoul.map(r=>[r._m, r.pop])}];
+  for (const a of AGE_KEYS) popSeries.push({name:a, color:ageColor(a), pts:seoul.map(r=>[r._m, agePop(r,a)])});
+  drawPanel(host, {help:"seoul", title:"생활인구", short:"인구", unit:"명 (연령별 = 인구 중앙값 × 연령 비율)", x0,x1, marks, zero:true, digits:0, series:popSeries,
+    empty: placeObj(place)?.kind==="keyword" && !placeObj(place)?.citydata_area ? "이 장소는 서울시가 실시간 인구를 제공하는 주요 장소 약 120곳 밖이라 인구 자료가 없습니다. 블로그·유튜브 게시물과 구 측정소 대기질로 봅니다." : "서울 도시데이터 자료가 없습니다. 인증키(SEOUL_API_KEY)와 장소 이름을 확인하세요."});
+
+  // 3. 도로속도 + 혼잡
+  drawPanel(host, {help:"seoul", title:"주변 도로 평균속도", short:"도로", unit:"km/h (낮을수록 막힘)", x0,x1, marks, zero:true,
+    series:[{name:"도로 평균속도", short:"속도", color:css("--road"), pts:seoul.map(r=>[r._m, r.spd])}]});
+
+  // 4. PM2.5
+  drawPanel(host, {help:"air_urban", title:"PM2.5", short:"PM2.5", unit:"㎍/㎥", x0,x1, marks, zero:true,
+    series:[
+      {name:"도시데이터(장소)", short:"장소", color:css("--air1"), pts:seoul.map(r=>[r._m, r.pm25])},
+      {name:`도시대기 ${au[0]?.station||""}`, short:"도시대기", color:css("--air2"), pts:au.map(r=>[r._m, r.pm25]), gap:3*H, tol:70*60e3},
+      {name:`도로변 ${ar[0]?.station||""}`, short:"도로변", color:css("--air3"), pts:ar.map(r=>[r._m, r.pm25]), gap:3*H, tol:70*60e3},
+    ]});
+
+  // 5. 도로변 증분 (Δ)
+  const dl = deltaSeries(place);
+  drawPanel(host, {help:"air_road", title:"도로변 증분 (도로변 − 도시대기)", short:"Δ", unit:"교통 기여 추정치", x0,x1, marks, symmetric:true,
+    empty:"도로변 측정소가 지정되지 않았거나 자료가 없습니다. config.json의 air_roadside를 채우면 계산됩니다.",
+    series:[{name:"ΔNO₂ (ppb)", color:css("--air3"), pts:dl.map(d=>[d.m,d.dno2]), gap:3*H, tol:70*60e3},
+            {name:"ΔPM2.5 (㎍/㎥)", color:css("--air1"), pts:dl.map(d=>[d.m,d.dpm]), gap:3*H, tol:70*60e3}]});
+
+  // 6. 풍속 (교란 변수)
+  drawPanel(host, {help:"seoul", title:"풍속", short:"풍속", unit:"m/s (바람이 강하면 농도가 희석됨)", x0,x1, marks, zero:true,
+    series:[{name:"풍속", color:css("--wind"), pts:seoul.map(r=>[r._m, r.wind])}]});
+
+  // 7. 검색어 기반 게시물 (네이버 블로그·뉴스, 유튜브)
+  const dayPts = rows => (rows||[]).map(([d,v])=>[ms(d)+12*H, v]);
+  const bz = Object.entries(DATA.buzz||{}).filter(([k,e])=>e.place===place);
+  const yt = Object.entries(DATA.youtube||{}).filter(([k,e])=>e.place===place);
+  const postSeries = [];
+  const pal = ["--a10","--a40","--a20","--a30","--a50"];
+  bz.forEach(([k,e],i)=>{ postSeries.push({name:`블로그 ‘${e.query}’`, short:"블로그", color:css(pal[i%5]), gap:2*DAY, tol:13*H, pts:dayPts(e.blog_daily)});
+                          postSeries.push({name:`뉴스 ‘${e.query}’`, short:"뉴스", color:css(pal[i%5]), dash:true, gap:2*DAY, tol:13*H, pts:dayPts(e.news_daily)}); });
+  yt.forEach(([k,e],i)=>postSeries.push({name:`유튜브 업로드 ‘${e.query}’`, short:"유튜브", color:css("--air3"), width:2.2, gap:2*DAY, tol:13*H, pts:dayPts(e.daily)}));
+  if (postSeries.length) drawPanel(host, {title:"검색어 기반 게시물 수", short:"게시물", unit:"건/일 (게시일 기준)", x0,x1, marks, zero:true, digits:0, series:postSeries});
+  if (yt.length) drawPanel(host, {title:"유튜브 새 영상 조회수 합", short:"조회수", unit:"회 (업로드한 날 기준, 수집 시점 조회수)", x0,x1, marks, zero:true, digits:0,
+    series:yt.map(([k,e])=>({name:e.query, color:css("--air3"), gap:2*DAY, tol:13*H, pts:dayPts(e.views)}))});
+
+  // 8. 인스타그램 해시태그 (공식 API)
+  const ig = Object.entries(DATA.instagram||{}).filter(([k,e])=>e.place===place);
+  if (ig.length) drawPanel(host, {title:"인스타그램 해시태그 게시물", short:"인스타", unit:"건/시간 (최근 게시물 표본)", x0,x1, marks, zero:true, digits:0,
+    series:ig.map(([k,e],i)=>({name:"#"+k, color:css(pal[i%5]), gap:3*H, pts:(e.rows||[]).map(r=>[ms(r[0]), r[1]])}))});
+
+  // 9. 구글 지도 새 리뷰
+  const gp = Object.entries(DATA.gplaces||{}).filter(([k,e])=>e.place===place);
+  if (gp.length) drawPanel(host, {title:"구글 지도 새 리뷰 수", short:"구글 리뷰", unit:"건/일 (누적 리뷰 수의 하루 증가)", x0,x1, marks, zero:true, digits:1,
+    series:gp.map(([k,e],i)=>({name:e.name||k, color:css(pal[(i+2)%5]), gap:3*DAY, tol:13*H, pts:reviewDelta(e.rows)}))});
+
+  // 10. 가져온 SNS
+  const sn = SNS.filter(r=>resolvePlace(r.place)===place && r.time);
+  if (sn.length){
+    const byP = {}; for (const r of sn){ const k=(r.platform||"sns")+(r.keyword?" · "+r.keyword:""); (byP[k] ||= []).push([ms(r.time.trim().replace(" ","T").slice(0,16)), parseFloat(r.count)]); }
+    drawPanel(host, {title:"SNS 게시물 수 (가져온 CSV)", short:"SNS", unit:"건", x0,x1, marks, zero:true, digits:0,
+      series:Object.entries(byP).map(([k,pts],i)=>({name:k, color:ageColor(AGE_KEYS[(i+1)%5]), gap:2*DAY, tol:13*H, pts:pts.filter(p=>!isNaN(p[0])).sort((a,b)=>a[0]-b[0])}))});
+  }
+
+  // 11. X
+  const xq = Object.entries(DATA.x||{}).filter(([k,q])=>q.place===place);
+  if (xq.length) drawPanel(host, {title:"X 게시물 수", short:"X", unit:"건/시간", x0,x1, marks, zero:true, digits:0,
+    series:xq.map(([k,q],i)=>({name:k, color:ageColor(AGE_KEYS[i%5]), pts:(q.rows||[]).map(([t,v])=>[ms(t),v])}))});
+
+  if (CURSOR!=null && CURSOR>=x0 && CURSOR<=x1) setCursor(CURSOR);
+  else { const last=seoul.length?seoul[seoul.length-1]._m:null; if(last&&last>=x0) setCursor(last); }
+}
+function reviewDelta(rows){
+  const out=[]; rows=(rows||[]).filter(r=>r[1]!=null);
+  for (let i=1;i<rows.length;i++){ const d=(ms(rows[i][0])-ms(rows[i-1][0]))/DAY; if(d>0) out.push([ms(rows[i][0])+12*H, (rows[i][1]-rows[i-1][1])/d]); }
+  return out;
+}
+const placeObj = id => (DATA?.places||[]).find(p=>p.id===id);
+function agePop(r,a){
+  if (r.pop==null || !r.age) return null;
+  let s=0, ok=false; for (const k of AGE_RATE[a]) if (r.age[k]!=null){ s+=r.age[k]; ok=true; }
+  return ok ? r.pop*s/100 : null;
+}
+function deltaSeries(place){
+  const u = new Map(series("air_urban",place).map(r=>[r.t,r]));
+  const out=[];
+  for (const r of series("air_road",place)){
+    const b=u.get(r.t); if(!b) continue;
+    out.push({m:r._m, t:r.t, dpm: r.pm25!=null&&b.pm25!=null? r.pm25-b.pm25 : null, dno2: r.no2!=null&&b.no2!=null? (r.no2-b.no2)*1000 : null});
+  }
+  return out;
+}
+
+/* ============================== 자동 발굴 ============================== */
+function renderDiscover(){
+  renderKeywords();
+  const D = DATA?.discovery;
+  const tracked = new Map((DATA?.places||[]).filter(p=>p.auto).map(p=>[p.citydata_area,p.id]));
+  const fixed = new Set((DATA?.places||[]).filter(p=>!p.auto).map(p=>p.citydata_area));
+  const status = b => b.ev ? `<span class="tag ev">행사</span>` : tracked.has(b.code) ? `<span class="tag track">추적 중</span>` :
+     (DATA.discovery?.candidates?.[b.code] ? `<span class="tag meme">인구 급증</span>` : "");
+  const goBtn = b => { const id = tracked.get(b.code) || (fixed.has(b.name)? (DATA.places.find(p=>p.citydata_area===b.name)||{}).id : null); return id? `<button class="linkbtn" data-go="${esc(id)}">연결 보기</button>`:""; };
+  if (!D){
+    $("#discSummary").textContent = "아직 전체 장소 스캔 자료가 없습니다. 서울 인증키(SEOUL_API_KEY)가 있으면 수집기가 3시간마다 서울 주요 장소 전체를 훑습니다.";
+    $("#boardTable").innerHTML = ""; $("#candTable").innerHTML = "";
+  } else {
+    const cands = Object.values(D.candidates||{});
+    $("#discSummary").innerHTML = `마지막 스캔 <b>${fmtDT(ms(D.scannedAt))}</b>, ${D.places}곳을 훑었습니다. 최근 14일 후보 <b>${cands.length}</b>곳, 그중 자동 추적 중 <b>${tracked.size}</b>곳.`;
+    const board = (D.board||[]).filter(b=>b.ratio!=null).slice(0,25);
+    $("#boardTable").innerHTML = `<thead><tr><th>장소</th><th>관측</th><th>현재 인구</th><th>평소 대비</th><th>10·20대 비율 변화</th><th>혼잡</th><th>진행 중 행사</th><th>상태</th><th></th></tr></thead><tbody>`+
+      (board.length? board.map(b=>`<tr><td>${esc(b.name)}</td><td>${fmtDT(ms(b.t))}</td><td>${fx(b.pop,0)}</td><td style="${b.ratio>=1.4?"color:var(--a10);font-weight:700":""}">${fx(b.ratio,2)}배</td><td>${b.dy==null?"–":(b.dy>=0?"+":"")+fx(b.dy)+"%p"}</td><td>${["","여유","보통","약간 붐빔","붐빔"][b.cg||0]||"–"}</td><td style="text-align:left">${esc(b.ev||"")}</td><td>${status(b)}</td><td>${goBtn(b)}</td></tr>`).join("")
+        : `<tr><td colspan="9" class="empty">평소와 비교할 기준선이 아직 없습니다. 같은 요일·시간대 자료가 3번 이상 쌓이면(보통 1~3주) 배율이 계산됩니다.</td></tr>`)+"</tbody>";
+    $("#candTable").innerHTML = `<thead><tr><th>장소</th><th>처음 포착</th><th>마지막 포착</th><th>7일 포착 횟수</th><th>최대 배율</th><th>10·20대 변화</th><th>진행 중 행사</th><th>상태</th><th></th></tr></thead><tbody>`+
+      (cands.length? cands.sort((a,b)=>b.last.localeCompare(a.last)).map(c=>`<tr><td>${esc(c.name)}</td><td>${fmtDT(ms(c.first))}</td><td>${fmtDT(ms(c.last))}</td><td>${c.hits.length}</td><td>${fx(c.max_ratio,2)}배</td><td>${c.dy==null?"–":(c.dy>=0?"+":"")+fx(c.dy)+"%p"}</td><td style="text-align:left">${esc(c.ev||"")}</td><td>${status(c)}</td><td>${goBtn(c)}</td></tr>`).join("")
+        : `<tr><td colspan="9" class="empty">아직 포착된 후보가 없습니다.</td></tr>`)+"</tbody>";
+  }
+  const only = $("#trendPlaceOnly").checked;
+  const tr = (DATA?.trends||[]).filter(t=>!only || (t.places?.length || t.words?.length));
+  $("#trendTable").innerHTML = `<thead><tr><th>검색어</th><th>검색량</th><th>연결된 장소</th><th>장소 관련 단어</th><th>관련 기사</th><th>처음 본 시각</th></tr></thead><tbody>`+
+    (tr.length? tr.map(t=>`<tr><td>${esc(t.title)}</td><td>${esc(t.traffic||"–")}</td><td style="text-align:left">${esc((t.places||[]).join(", "))}</td><td style="text-align:left">${esc((t.words||[]).join(", "))}</td><td style="text-align:left;white-space:normal;min-width:220px">${esc((t.news||[])[0]||"")}</td><td>${fmtDT(ms(t.first))}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">${DATA?.trends? "조건에 맞는 검색어가 없습니다. 체크를 풀면 전체가 보입니다." : "구글 급상승 검색어 자료가 없습니다. 수집기가 한 번 돌면 채워집니다(인증키 불필요)."}</td></tr>`)+"</tbody>";
+  document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{ ui.place=b.dataset.go; ui.group=null; CURSOR=null; saveUi(); selectTab("linked"); });
+}
+
+function renderKeywords(){
+  const K = DATA?.keywords;
+  const tracked = (DATA?.places||[]).filter(p=>p.kind==="keyword");
+  const termTo = new Map(); tracked.forEach(p=>(p.keywords||[]).forEach(t=>termTo.set(t,p.id)));
+  $("#kwSummary").innerHTML = !K ? `아직 키워드 발굴 자료가 없습니다. 네이버 앱(데이터랩 + 검색)이 연결되면 수집기가 3시간마다 밈 키워드를 모아 장소를 스스로 추립니다. 장소를 미리 정할 필요가 없습니다.`
+    : `마지막 발굴 <b>${fmtDT(ms(K.ranAt||DATA.generatedAt))}</b>. 키워드 ${Object.keys(K.cands||{}).length}개가 장소로 풀렸고, 그중 <b>${tracked.length}</b>곳을 추적 중입니다.${(K.baseline_runs??0)<3?" 급상승 판단의 기준선이 아직 짧아(첫 하루) 제목에 많이 나온 말을 우선 후보로 씁니다.":""}`;
+  $("#trackedChips").innerHTML = tracked.length ? tracked.map(p=>`<button class="tcard" data-go="${esc(p.id)}"><b>${esc(p.label)}</b><span>${esc((p.keywords||[]).slice(0,3).join(", "))}</span><br><span>${[p.gu, p.citydata_area?"실시간 인구 있음":"인구 자료 없음", p.pop_confirmed?"인구 확인":"", p.seed?"직접 입력":""].filter(Boolean).map(esc).join(" · ")}</span></button>`).join("")
+    : `<p class="small" style="margin:0">아직 추적 중인 장소가 없습니다. 같은 키워드가 두 번 이상 급상승으로 잡히면(보통 하루 안) 여기에 나타납니다. 꼭 볼 밈은 config.json의 seed_keywords에 넣으면 바로 추적합니다.</p>`;
+  const cands = Object.values(K?.cands||{}).sort((a,b)=>(termTo.has(b.term)-termTo.has(a.term)) || (b.rise||0)-(a.rise||0));
+  const st = e => e.ev ? `<span class="tag ev">행사</span>` : termTo.has(e.term) ? `<span class="tag track">추적 중</span>` : e.hits?.length ? `<span class="tag meme">후보 ${e.hits.length}회</span>` : "";
+  $("#kwTable").innerHTML = `<thead><tr><th>밈 키워드</th><th>찾은 경로</th><th>풀린 장소</th><th>구</th><th>서울 주요 장소</th><th>블로그 최근 3일</th><th>그 전 7일</th><th>급상승</th><th>인구 확인</th><th>상태</th><th></th></tr></thead><tbody>`+
+    (cands.length ? cands.slice(0,40).map(e=>{ const p=e.place||{}; const id=termTo.get(e.term);
+      return `<tr><td>${esc(e.term)}</td><td>${esc(e.source)}</td><td style="text-align:left">${esc(p.name||"")}<br><span class="small">${esc(p.category||"")}</span></td><td>${esc(p.gu||"–")}</td><td>${esc(p.citydata?.name||"–")}</td>
+        <td>${fx(e.r3)}/일</td><td>${fx(e.rp)}/일</td><td style="${(e.rise||0)>=2?"color:var(--a10);font-weight:700":""}">${e.saturated?"매우 활발":fx(e.rise,1)+"배"}</td><td>${e.pop_confirmed?"✓":""}</td><td>${st(e)}</td><td>${id?`<button class="linkbtn" data-go="${esc(id)}">연결 보기</button>`:""}</td></tr>`; }).join("")
+      : `<tr><td colspan="11" class="empty">장소로 풀린 키워드가 아직 없습니다.</td></tr>`)+"</tbody>";
+  const placeTerms = new Set(cands.map(e=>e.term));
+  const rising = K?.rising||[];
+  $("#risingChips").innerHTML = rising.length ? rising.slice(0,30).map(r=>`<span class="rchip ${placeTerms.has(r.term)?"place":""}">${esc(r.term)} <small>${r.count}${r.base?` · 평소 ${r.base}`:""}</small></span>`).join("") : `<p class="small" style="margin:0">아직 없습니다.</p>`;
+  $("#risingNote").textContent = rising.length ? "분홍 테두리는 장소로 풀린 말입니다. 나머지는 장소가 아닌 밈(유행어, 제품, 인물 등)이거나 서울 밖이라 추적하지 않습니다. 숫자는 이번 수집에서 제목에 나온 횟수입니다." : "";
+}
+
+/* ============================== 연령별 반응 ============================== */
+function renderAges(){
+  const tb = $("#ageTable");
+  $("#ageDefs").innerHTML = `<b>검색 정점</b> 기간 안에서 지수가 가장 높은 날 &nbsp; <b>상승 기울기</b> 정점 전 7일 동안 하루 평균 증가량 &nbsp; <b>방문 정점</b> 검색 정점 3일 전부터 14일 뒤 사이에서 해당 연령 추정 인구의 일평균이 가장 높은 날 &nbsp; <b>지연</b> 방문 정점 − 검색 정점(일) &nbsp; <b>민감도</b> 방문 증가율(%) ÷ 검색 증가율(%)`;
+  if (!DATA || !ui.group || !DATA.search?.[ui.group]){ tb.innerHTML = `<tr><td class="empty">네이버 검색 추이 자료가 없습니다. NAVER_CLIENT_ID / NAVER_CLIENT_SECRET을 등록하면 채워집니다.</td></tr>`; return; }
+  const g = DATA.search[ui.group];
+  const [x0,x1] = windowRange();
+  const lo = Math.min(x0, x1-21*DAY); // 연령 반응은 최소 3주를 봅니다
+  const place = g.place;
+  const daily = dailyAgePop(place);
+  let html = `<thead><tr><th>연령대</th><th>검색 정점</th><th>정점 지수</th><th>상승 기울기 (/일)</th><th>방문 정점</th><th>방문 변화</th><th>지연 (일)</th><th>민감도</th></tr></thead><tbody>`;
+  for (const a of ["전체",...AGE_KEYS]){
+    const arr = (g.ages?.[a]||[]).map(([d,v])=>[ms(d),v]).filter(p=>p[0]>=lo && p[0]<=x1);
+    if (!arr.length){ html+=`<tr><td>${a}</td><td colspan="7" class="small">자료 없음</td></tr>`; continue; }
+    let pk = arr.reduce((b,p)=>p[1]>b[1]?p:b, arr[0]);
+    const pi = arr.indexOf(pk);
+    const pre = arr.slice(Math.max(0,pi-7), pi+1);
+    const slope = pre.length>1 ? (pre[pre.length-1][1]-pre[0][1])/(pre.length-1) : null;
+    const baseS = median(arr.slice(0,7).map(p=>p[1]));
+    let visit="–", dPop=null, lag=null, sens=null, vtxt="–";
+    if (a!=="전체" && daily[a]){
+      const d = daily[a].filter(p=>p[0]>=lo && p[0]<=x1);
+      const base = median(d.slice(0,7).map(p=>p[1]));
+      const win = d.filter(p=>p[0]>=pk[0]-3*DAY && p[0]<=pk[0]+14*DAY);
+      if (win.length && base){
+        const vp = win.reduce((b,p)=>p[1]>b[1]?p:b, win[0]);
+        visit = fmtD(vp[0]); lag = Math.round((vp[0]-pk[0])/DAY);
+        dPop = (vp[1]/base-1)*100; vtxt = (dPop>=0?"+":"")+fx(dPop,0)+"%";
+        const dS = baseS ? (pk[1]/Math.max(baseS,1)-1)*100 : null;
+        sens = dS ? dPop/dS : null;
+      } else if (d.length<7) vtxt = "인구 자료 부족";
+    }
+    html += `<tr><td><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${ageColor(a)};margin-right:6px"></i>${a}</td><td>${fmtD(pk[0])}</td><td>${fx(pk[1],0)}</td><td>${fx(slope,1)}</td><td>${visit}</td><td>${vtxt}</td><td>${lag==null?"–":(lag>0?"+":"")+lag}</td><td>${fx(sens,2)}</td></tr>`;
+  }
+  tb.innerHTML = html+"</tbody>";
+}
+function dailyAgePop(place){
+  const by = {};
+  for (const r of series("seoul",place)){
+    const k = dayKey(r._m);
+    for (const a of AGE_KEYS){ const v=agePop(r,a); if(v!=null) ((by[a] ||= {})[k] ||= []).push(v); }
+  }
+  const out={};
+  for (const a in by) out[a] = Object.entries(by[a]).map(([k,vs])=>[ms(k)+12*H, mean(vs)]).sort((x,y)=>x[0]-y[0]);
+  return out;
+}
+
+/* ============================== 시간 × 장소 ============================== */
+function hourValue(v, place){
+  const S = series("seoul",place), U=series("air_urban",place), R=series("air_road",place);
+  switch(v){
+    case "pop": return S.map(r=>[r._m,r.pop]);
+    case "cg": return S.map(r=>[r._m,r.cg]);
+    case "spd": return S.map(r=>[r._m,r.spd]);
+    case "pm25s": return S.map(r=>[r._m,r.pm25]);
+    case "pm25u": return U.map(r=>[r._m,r.pm25]);
+    case "pm25r": return R.map(r=>[r._m,r.pm25]);
+    case "dpm": return deltaSeries(place).map(d=>[d.m,d.dpm]);
+    case "dno2": return deltaSeries(place).map(d=>[d.m,d.dno2]);
+  }
+  return [];
+}
+function renderHours(){
+  const tb = $("#hourTable");
+  if (!DATA){ tb.innerHTML=""; return; }
+  const [x0,x1] = windowRange();
+  const places = DATA.places||[];
+  const cells = {}; let lo=Infinity, hi=-Infinity;
+  for (const p of places){
+    const buckets = Array.from({length:24},()=>[]);
+    for (const [m,v] of hourValue(ui.hourVar,p.id)){
+      if (v==null||m<x0||m>x1) continue;
+      if (ui.dayType==="wd"&&isWeekend(m)) continue;
+      if (ui.dayType==="we"&&!isWeekend(m)) continue;
+      buckets[hourOf(m)].push(v);
+    }
+    cells[p.id] = buckets.map(b=>{ const v=mean(b); if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v);} return [v,b.length]; });
+  }
+  const digits = ui.hourVar==="pop"?0:1;
+  const tint = v => { if(v==null||!isFinite(lo)||hi===lo) return ""; const f=(v-lo)/(hi-lo); return `background:color-mix(in srgb,var(--accent) ${Math.round(6+f*46)}%,var(--surface))`; };
+  let h = `<thead><tr><th>시각</th>${places.map(p=>`<th>${esc(p.label)}</th>`).join("")}</tr></thead><tbody>`;
+  for (let hr=0; hr<24; hr++){
+    h += `<tr><td>${pad(hr)}시</td>${places.map(p=>{ const [v,n]=cells[p.id][hr]; return `<td style="${tint(v)}">${fx(v,digits)} <span class="small">${n?"("+n+")":""}</span></td>`; }).join("")}</tr>`;
+  }
+  tb.innerHTML = h+"</tbody>";
+}
+
+/* ============================== 현장 측정 ============================== */
+const FIELD_COLS = ["date","site","phase","slot","start","rep","pedestrians","vehicles","pm25_sensor","note"];
+function parseCSV(text){
+  const rows=[]; let row=[], cell="", q=false;
+  for (let i=0;i<text.length;i++){
+    const c=text[i];
+    if (q){ if(c==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; } else cell+=c; }
+    else if (c==='"') q=true;
+    else if (c===','){ row.push(cell); cell=""; }
+    else if (c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n') i++; row.push(cell); rows.push(row); row=[]; cell=""; }
+    else cell+=c;
+  }
+  if (cell!==""||row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=>r.some(x=>x.trim()!==""));
+}
+function resolvePlace(site){
+  const s=(site||"").trim(); const ps=DATA?.places||[];
+  const p = ps.find(p=>p.id===s) || ps.find(p=>p.label===s) || ps.find(p=>p.label.includes(s)||s.includes(p.label)) || ps.find(p=>(p.citydata_area||"").includes(s));
+  return p?p.id:s;
+}
+function prepField(){
+  for (const r of FIELD){
+    r._place = resolvePlace(r.site);
+    const t = (r.start||"").trim().match(/^(\d{1,2}):(\d{2})/);
+    r._m = r.date && t ? ms(`${r.date.trim()}T${pad(t[1])}:${t[2]}`) : null;
+    if (r._m!=null && isNaN(r._m)) r._m=null;
+  }
+}
+function loadFieldText(text){
+  const rows = parseCSV(text.replace(/^\uFEFF/,""));
+  if (rows.length<2) { $("#fieldMsg").textContent="열 이름과 자료가 한 줄 이상 있어야 합니다."; return; }
+  const head = rows[0].map(h=>h.trim().toLowerCase());
+  const miss = ["date","site","phase","slot","start"].filter(c=>!head.includes(c));
+  if (miss.length){ $("#fieldMsg").textContent = "빠진 열: "+miss.join(", "); return; }
+  FIELD = rows.slice(1).map(r=>{ const o={}; head.forEach((h,i)=>o[h]=(r[i]??"").trim()); return o; });
+  store.set("field", FIELD);
+  $("#fieldMsg").textContent = `${FIELD.length}줄을 불러왔습니다.`;
+  renderAll();
+}
+function nearestObs(src, place, m, tol){
+  let best=null, bd=Infinity;
+  for (const r of series(src,place)){ const d=Math.abs(r._m-m); if(d<bd){bd=d;best=r;} }
+  return best && bd<=tol ? best : null;
+}
+function fieldSummary(){
+  prepField();
+  const groups = {};
+  for (const r of FIELD){
+    const k=[r.date,r._place,r.phase,r.slot].join("|");
+    (groups[k] ||= {date:r.date, place:r._place, site:r.site, phase:r.phase, slot:r.slot, start:r.start, m:r._m, rows:[]}).rows.push(r);
+  }
+  return Object.values(groups).map(g=>{
+    const col = c => g.rows.map(r=>parseFloat(r[c])).filter(v=>isFinite(v));
+    const ped=col("pedestrians"), veh=col("vehicles"), pm=col("pm25_sensor");
+    const s = g.m!=null ? nearestObs("seoul",g.place,g.m+15*60e3,40*60e3) : null;
+    const u = g.m!=null ? nearestObs("air_urban",g.place,g.m,70*60e3) : null;
+    const pmMed = median(pm);
+    return {...g, n:g.rows.length,
+      ped:median(ped), pedR: ped.length?Math.max(...ped)-Math.min(...ped):null,
+      veh:median(veh), vehR: veh.length?Math.max(...veh)-Math.min(...veh):null,
+      pm:pmMed, pmR: pm.length?Math.max(...pm)-Math.min(...pm):null,
+      oPop:s?.pop??null, oCg:s?.cg??null, oSpd:s?.spd??null, oPm:s?.pm25??null, uPm:u?.pm25??null,
+      dPm: pmMed!=null&&u?.pm25!=null ? pmMed-u.pm25 : null, oT: s?fmtDT(s._m):"–"};
+  }).sort((a,b)=>(a.m||0)-(b.m||0));
+}
+function renderField(){
+  const S = fieldSummary();
+  const tb=$("#fieldTable"), pt=$("#phaseTable");
+  if (!S.length){ tb.innerHTML=`<tr><td class="empty">불러온 현장 기록이 없습니다. 왼쪽 위에서 CSV를 불러오세요. 양식이 필요하면 ‘양식 CSV 저장’을 누르세요.</td></tr>`; pt.innerHTML=""; return; }
+  const label = id => (DATA?.places||[]).find(p=>p.id===id)?.label || id;
+  tb.innerHTML = `<thead><tr><th>날짜</th><th>장소</th><th>단계</th><th>슬롯</th><th>반복</th><th>보행자 중앙값 (범위)</th><th>차량 중앙값 (범위)</th><th>센서 PM2.5 (범위)</th><th>공공 관측 시각</th><th>생활인구</th><th>혼잡</th><th>도로속도</th><th>도시데이터 PM2.5</th><th>측정소 PM2.5</th><th>센서 − 측정소</th></tr></thead><tbody>`+
+    S.map(r=>`<tr><td>${esc(r.date)} ${esc(r.start)}</td><td>${esc(label(r.place))}</td><td>${esc(r.phase)}</td><td>${esc(r.slot)}</td><td>${r.n}</td>
+      <td>${fx(r.ped,0)} (${fx(r.pedR,0)})</td><td>${fx(r.veh,0)} (${fx(r.vehR,0)})</td><td>${fx(r.pm)} (${fx(r.pmR)})</td>
+      <td>${r.oT}</td><td>${fx(r.oPop,0)}</td><td>${fx(r.oCg,0)}</td><td>${fx(r.oSpd)}</td><td>${fx(r.oPm)}</td><td>${fx(r.uPm)}</td><td>${fx(r.dPm)}</td></tr>`).join("")+"</tbody>";
+  // 전·중·후
+  const key = r => r.place+"|"+r.slot;
+  const by = {};
+  for (const r of S){ const b=(by[key(r)] ||= {place:r.place, slot:r.slot}); const ph=(r.phase||"").trim(); (b[ph] ||= []).push(r); }
+  const vars = [["ped","보행자"],["veh","차량"],["pm","센서 PM2.5"],["oPop","생활인구"],["oSpd","도로속도"],["uPm","측정소 PM2.5"]];
+  let h = `<thead><tr><th>장소 · 슬롯</th><th>지표</th><th>전</th><th>중</th><th>후</th><th>중 − 전</th><th>중 − 후</th><th>후 − 전</th></tr></thead><tbody>`;
+  for (const b of Object.values(by)){
+    for (const [v,name] of vars){
+      const m = ph => b[ph] ? median(b[ph].map(r=>r[v])) : null;
+      const pre=m("전"), mid=m("중"), post=m("후");
+      if (pre==null&&mid==null&&post==null) continue;
+      const d=(a,c)=>a!=null&&c!=null? ((a-c>=0?"+":"")+fx(a-c, v==="oPop"?0:1)) : "–";
+      h += `<tr><td>${esc(label(b.place))} ${esc(b.slot)}</td><td>${name}</td><td>${fx(pre)}</td><td>${fx(mid)}</td><td>${fx(post)}</td><td>${d(mid,pre)}</td><td>${d(mid,post)}</td><td>${d(post,pre)}</td></tr>`;
+    }
+  }
+  pt.innerHTML = h+`</tbody>`;
+}
+
+/* ============================== 설정 탭 ============================== */
+function renderSettings(){
+  const st = DATA?.status||{};
+  $("#statusTable").innerHTML = `<thead><tr><th>자료원</th><th>상태</th><th>마지막 시도</th><th>마지막 성공</th><th>건수</th><th>메시지</th></tr></thead><tbody>`+
+    SOURCES.filter(s=>st[s.id]).map(s=>{ const i=st[s.id]; return `<tr><td>${s.name}</td><td style="color:var(--${i.ok?"fresh":"stale"})">${i.ok?"정상":"실패"}</td><td>${i.at?fmtDT(ms(i.at)):"–"}</td><td>${i.lastSuccess?fmtDT(ms(i.lastSuccess)):"–"}</td><td>${i.n??"–"}</td><td style="text-align:left;white-space:normal">${esc(i.msg||"")}</td></tr>`; }).join("")+
+    (Object.keys(st).length?"":`<tr><td colspan="6" class="empty">수집기 상태 기록이 없습니다.</td></tr>`)+"</tbody>";
+  $("#placeTable").innerHTML = `<thead><tr><th>id</th><th>이름</th><th>도시데이터 장소명</th><th>도시대기 측정소</th><th>도로변 측정소</th><th>연결된 검색어 그룹</th></tr></thead><tbody>`+
+    (DATA?.places||[]).map(p=>`<tr><td>${esc(p.id)}</td><td>${esc(p.label)}</td><td>${esc(p.citydata_area)}</td><td>${esc(p.air_urban||"–")}</td><td>${esc(p.air_roadside||"–")}</td><td>${esc(Object.entries(DATA.search||{}).filter(([k,g])=>g.place===p.id).map(([k])=>k).join(", ")||"–")}</td></tr>`).join("")+"</tbody>";
+  const runs = (DATA?.runs||[]).slice(-8).reverse();
+  $("#runLog").innerHTML = runs.length ? runs.map(r=>`${fmtDT(ms(r.at))} 실행, 새 관측 ${r.new}건`).join("<br>") : "기록이 없습니다.";
+}
+
+/* ============================== 내보내기 ============================== */
+async function download(name, text){
+  try {
+    const dl = window.claude?.use ? await window.claude.use("downloads") : null;
+    if (dl) { await dl.save({filename:name, data:"\uFEFF"+text}); return; }
+  } catch(e){ if (e && e.code==="declined") return; }
+  const blob = new Blob(["\uFEFF"+text], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+const csvRow = arr => arr.map(v=>{ const s=v==null?"":String(v); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }).join(",");
+function exportLinked(){
+  if (!DATA||!ui.place) return;
+  const place=ui.place, [x0,x1]=windowRange();
+  const u = new Map(series("air_urban",place).map(r=>[r.t.slice(0,13),r]));
+  const rd = new Map(series("air_road",place).map(r=>[r.t.slice(0,13),r]));
+  const g = Object.values(DATA.search||{}).find(g=>g.place===place);
+  const sIdx = {}; if (g) for (const a in g.ages) sIdx[a]=new Map(g.ages[a]);
+  const bzE = Object.values(DATA.buzz||{}).find(e=>e.place===place), ytE = Object.values(DATA.youtube||{}).find(e=>e.place===place);
+  const gpE = Object.values(DATA.gplaces||{}).find(e=>e.place===place);
+  const mp = rows => new Map(rows||[]);
+  const blogM = mp(bzE?.blog_daily), newsM = mp(bzE?.news_daily), ytM = mp(ytE?.daily), gpM = new Map(reviewDelta(gpE?.rows).map(([m,v])=>[dayKey(m),v]));
+  const head=["time_kst","pop_mid","pop_min","pop_max","congest","age10_pop","age20_pop","age30_pop","age40_pop","age50p_pop","road_speed","wind","temp","pm25_citydata","pm25_urban","no2_urban","pm25_road","no2_road","d_pm25","d_no2_ppb",...["전체",...AGE_KEYS].map(a=>"search_"+a),"blog_posts_day","news_day","youtube_uploads_day","gmaps_new_reviews_day"];
+  const lines=[csvRow(head)];
+  for (const r of series("seoul",place)){
+    if (r._m<x0||r._m>x1) continue;
+    const hk = r.t.slice(0,13); const a=u.get(hk), b=rd.get(hk);
+    lines.push(csvRow([r.t.replace("T"," "), r.pop, r.pmin, r.pmax, r.cg, ...AGE_KEYS.map(k=>{const v=agePop(r,k);return v==null?"":Math.round(v);}), r.spd, r.wind, r.temp, r.pm25,
+      a?.pm25, a?.no2, b?.pm25, b?.no2, a&&b&&a.pm25!=null&&b.pm25!=null?b.pm25-a.pm25:"", a&&b&&a.no2!=null&&b.no2!=null?((b.no2-a.no2)*1000).toFixed(1):"",
+      ...["전체",...AGE_KEYS].map(k=>sIdx[k]?.get(r.t.slice(0,10))??""),
+      blogM.get(r.t.slice(0,10))??"", newsM.get(r.t.slice(0,10))??"", ytM.get(r.t.slice(0,10))??"", gpM.get(r.t.slice(0,10))??""]));
+  }
+  download(`memepulse_${place}_${dayKey(Date.now())}${DATA.demo?"_DEMO":""}.csv`, lines.join("\n"));
+}
+function exportField(){
+  const S=fieldSummary(); if(!S.length) return;
+  const head=["date","start","place","phase","slot","reps","ped_median","ped_range","veh_median","veh_range","pm25_sensor_median","pm25_sensor_range","obs_time","pop","congest","road_speed","pm25_citydata","pm25_station","sensor_minus_station"];
+  download(`memepulse_field_${dayKey(Date.now())}.csv`, [csvRow(head), ...S.map(r=>csvRow([r.date,r.start,r.place,r.phase,r.slot,r.n,r.ped,r.pedR,r.veh,r.vehR,r.pm,r.pmR,r.oT,r.oPop,r.oCg,r.oSpd,r.oPm,r.uPm,r.dPm==null?"":r.dPm.toFixed(1)]))].join("\n"));
+}
+
+/* ============================== 가상 데모 자료 ============================== */
+function startDemo(){
+  let seed=7; const rnd=()=>((seed=(seed*16807)%2147483647)/2147483647);
+  const end = Math.floor(Date.now()/H)*H, start=end-30*DAY;
+  const iso=m=>{const d=kd(m);return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;};
+  const places=[{id:"seoulforest",label:"서울숲",kind:"pinned",citydata_area:"서울숲공원",air_urban:"성동구",air_roadside:"강변북로"},
+    {id:"seongsu",label:"성수카페거리",kind:"keyword",auto:true,keywords:["성수 팝업","성수 굿즈 오픈런"],citydata_area:"POI002",citydata_name:"성수카페거리",gu:"성동구",air_urban:"성동구",air_roadside:"강변북로",since:iso(end-6*DAY),score:3.1},
+    {id:"worldcup",label:"월드컵공원(상암)",kind:"pinned",citydata_area:"월드컵공원",air_urban:"마포구",air_roadside:"신촌로"},
+    {id:"auto_POI090",label:"망원한강공원",kind:"keyword",auto:true,keywords:["망원 노을 피크닉","한강 노을 명소"],citydata_area:"POI090",citydata_name:"망원한강공원",gu:"마포구",air_urban:"",air_roadside:"",pop_confirmed:true,since:iso(end-2*DAY),score:4.4}];
+  const peak = end-12*DAY; // 가상 밈 정점
+  const bump=(m,shift,w)=>Math.exp(-Math.pow((m-peak-shift)/(w*DAY),2));
+  const obs=[]; const bg=[];
+  for (let m=start;m<=end;m+=H) bg.push(18+10*Math.sin(m/(5.3*DAY))+rnd()*4);
+  places.forEach((p,pi)=>{
+    const base=[9000,14000,7000,6000][pi];
+    for (let m=start,i=0;m<=end;m+=H,i++){
+      const h=hourOf(m), diurnal=0.35+0.65*Math.max(0,Math.sin((h-7)/14*Math.PI)), we=isWeekend(m)?1.35:1;
+      const meme = p.id==="worldcup" ? 1+1.6*bump(m,2*DAY,4) : p.auto ? 1+1.3*Math.max(0,1-(end-m)/(3*DAY)) : 1+0.3*bump(m,5*DAY,6);
+      const pop = base*diurnal*we*meme*(0.92+rnd()*0.16);
+      const young = p.id==="worldcup"? 1+0.8*bump(m,0,3) : 1;
+      let rates={"0":4,"10":8*young,"20":24*young,"30":22,"40":16,"50":12,"60":9,"70":5}; const tot=Object.values(rates).reduce((a,b)=>a+b,0);
+      for (const k in rates) rates[k]=+(rates[k]/tot*100).toFixed(1);
+      const spd = Math.max(8, 32 - pop/base*9 + rnd()*3);
+      const wind = 1+2.5*rnd();
+      const pm = bg[i]*(1.6/(wind+0.6)) + pop/base*2;
+      obs.push({src:"seoul",place:p.id,t:iso(m),pmin:Math.round(pop*0.95/500)*500,pmax:Math.round(pop*1.05/500)*500,pop:Math.round(pop),cg:pop/base>1.6?4:pop/base>1.1?3:pop/base>0.6?2:1,age:rates,spd:+spd.toFixed(1),wind:+wind.toFixed(1),temp:+(20+5*Math.sin((h-9)/24*2*Math.PI)).toFixed(1),pm25:Math.round(pm)});
+      if (p.auto) continue;
+      obs.push({src:"air_urban",place:p.id,t:iso(m),station:p.air_urban,pm25:Math.round(bg[i]*(1.4/(wind+0.4))),no2:+(0.018+0.006*rnd()).toFixed(3)});
+      obs.push({src:"air_road",place:p.id,t:iso(m),station:p.air_roadside,pm25:Math.round(bg[i]*(1.4/(wind+0.4))+2+3*(40-spd)/30+rnd()*2),no2:+(0.024+0.012*(40-spd)/30+0.004*rnd()).toFixed(3)});
+    }
+  });
+  const search={};
+  [["서울숲","seoulforest",5*DAY,6],["성수 팝업","seongsu",4*DAY,3],["하늘공원 억새","worldcup",0,3]].forEach(([name,pl,sh,w])=>{
+    const ages={};
+    const lead={"전체":0,"10대":-2,"20대":-1,"30대":0,"40대":2,"50대+":4};
+    for (const a in lead){ const arr=[]; for(let m=start;m<=end;m+=DAY){ arr.push([dayKey(m), bump(m,sh+lead[a]*DAY,w)*100*0.9+10+rnd()*8]); } const mx=Math.max(...arr.map(x=>x[1])); ages[a]=arr.map(([d,v])=>[d,+(v/mx*100).toFixed(1)]); }
+    search[name]={place:pl,keywords:[name],ages};
+  });
+  const nowIso=iso(end);
+  const board=[["망원한강공원",2.3,11.2,null],["DMC(디지털미디어시티)",1.9,6.1,"가상 행사"],["서울숲공원",1.5,4.0,null],["광화문·덕수궁",1.1,-0.8,null],["여의도한강공원",0.9,-1.2,null]]
+    .map(([n,r,dy,ev],i)=>({code:"POI"+String(90+i).padStart(3,"0"),name:n,t:nowIso,pop:Math.round(8000*r),cg:r>1.8?4:r>1.3?3:2,ratio:r,base_n:4,dy,ev}));
+  const candidates={}; board.filter(b=>b.ratio>=1.4).forEach(b=>candidates[b.code]={code:b.code,name:b.name,first:iso(end-2*DAY),last:nowIso,hits:[iso(end-2*DAY),iso(end-DAY),nowIso],ratio:b.ratio,max_ratio:b.ratio,dy:b.dy,ev:b.ev,pop:b.pop});
+  const discovery={scannedAt:nowIso,places:121,board,candidates};
+  const trends=[{title:"가상 망원한강공원 노을",traffic:"2000+",news:["가상 기사 제목"],places:["망원한강공원"],words:["한강","공원"],first:iso(end-5*H),last:nowIso},{title:"가상 성수 팝업",traffic:"1000+",news:[],places:[],words:["성수","팝업"],first:iso(end-DAY),last:nowIso}];
+  const days=[]; for(let m=start;m<=end;m+=DAY) days.push(m);
+  const buzz={"하늘공원 억새":{place:"worldcup",query:"하늘공원 억새",blog_daily:days.map(m=>[dayKey(m),Math.round(8+60*bump(m,1*DAY,4)+rnd()*6)]),news_daily:days.map(m=>[dayKey(m),Math.round(1+9*bump(m,3*DAY,3)+rnd()*2)])}};
+  const youtube={"하늘공원 억새":{place:"worldcup",query:"하늘공원 억새",daily:days.map(m=>[dayKey(m),Math.round(1+14*bump(m,-1*DAY,3)+rnd()*2)]),views:days.map(m=>[dayKey(m),Math.round(800+90000*bump(m,-1*DAY,3)*rnd())])}};
+  const instagram={"하늘공원억새":{place:"worldcup",rows:[]}}; for(let m=end-10*DAY;m<=end;m+=H) instagram["하늘공원억새"].rows.push([iso(m),Math.round((2+10*bump(m,0,4))*(0.3+0.7*Math.max(0,Math.sin((hourOf(m)-8)/15*Math.PI)))+rnd()*2),0]);
+  let cum=5200; const gplaces={"하늘공원":{place:"worldcup",name:"하늘공원",rows:days.map(m=>{cum+=Math.round(3+25*bump(m,3*DAY,4)+rnd()*3); return [dayKey(m),cum,4.5];})}};
+  const P=(name,gu,cd,cat)=>({name,gu,category:cat,citydata:cd?{code:cd,name}:null});
+  const keywords={ranAt:nowIso,baseline_runs:12,
+    cands:{
+      "망원 노을 피크닉":{term:"망원 노을 피크닉",source:"제목 급상승",place:P("망원한강공원","마포구","POI090","공원"),r3:21.3,rp:4.1,rise:4.6,hits:[1,2,3],ev:false,pop_confirmed:true},
+      "한강 노을 명소":{term:"한강 노을 명소",source:"구글 급상승",place:P("망원한강공원","마포구","POI090","공원"),r3:12,rp:3.3,rise:3.1,hits:[1,2],ev:false,pop_confirmed:true},
+      "성수 팝업":{term:"성수 팝업",source:"직접 입력",place:P("성수카페거리","성동구","POI002","거리"),r3:33,rp:18,rise:1.8,hits:[1,2,3,4],ev:false},
+      "성수 굿즈 오픈런":{term:"성수 굿즈 오픈런",source:"제목 급상승",place:P("성수카페거리","성동구","POI002","팝업스토어"),r3:9,rp:1.2,rise:5.4,hits:[1,2],ev:false},
+      "연남 디저트 웨이팅":{term:"연남 디저트 웨이팅",source:"제목 급상승",place:{name:"가상 디저트 연남점",gu:"마포구",category:"디저트",citydata:null},r3:6.3,rp:1.5,rise:3.2,hits:[1],ev:false},
+      "가상 뮤직 페스티벌":{term:"가상 뮤직 페스티벌",source:"구글 급상승",place:P("난지한강공원","마포구","POI091","공원"),r3:40,rp:3,rise:9.8,hits:[1],ev:true}},
+    rising:[{term:"망원 노을 피크닉",count:14,base:2,rise:4.7},{term:"성수 굿즈 오픈런",count:11,base:1,rise:5.5},{term:"연남 디저트 웨이팅",count:9,base:2,rise:3},{term:"가상 유행어",count:17,base:3,rise:4.3},{term:"가상 뮤직 페스티벌",count:12,base:0,rise:12},{term:"가상 신제품",count:8,base:2,rise:2.7}]};
+  setData({schema:1,demo:true,generatedAt:nowIso,places,obs,search,x:{},discovery,trends,buzz,youtube,instagram,gplaces,keywords,
+    status:{seoul:{ok:true,at:nowIso,lastSuccess:nowIso,n:3,msg:""},air_urban:{ok:true,at:nowIso,lastSuccess:nowIso,n:6,msg:""},air_road:{ok:true,at:nowIso,lastSuccess:nowIso,n:6,msg:""},scan:{ok:true,at:nowIso,lastSuccess:nowIso,n:121,msg:""},kw:{ok:true,at:nowIso,lastSuccess:nowIso,n:2,msg:""},buzz:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},youtube:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},instagram:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},gplaces:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},trends:{ok:true,at:nowIso,lastSuccess:nowIso,n:2,msg:""},naver:{ok:true,at:nowIso,lastSuccess:nowIso,n:3,msg:""}},
+    runs:[{at:nowIso,new:0}]}, true);
+}
+
+/* ============================== 전체 그리기 · 이벤트 ============================== */
+function saveUi(){ store.set("ui", ui); }
+function renderAll(){
+  renderBanners(); renderLanes();
+  if (DATA) { renderSelectors(); prepField(); }
+  const t = ui.tab;
+  if (t==="linked") renderLinked(); else PANELS.length=0;
+  if (t==="ages") renderAges();
+  if (t==="discover") renderDiscover();
+  if (t==="hours") renderHours();
+  if (t==="field") renderField();
+  if (t==="settings") { renderSettings(); $("#srcInput").value=cfg.src; $("#intervalSel").value=String(cfg.interval); }
+}
+function selectTab(t){
+  ui.tab=t; saveUi();
+  document.querySelectorAll("#tabs button").forEach(b=>b.setAttribute("aria-selected", String(b.dataset.tab===t)));
+  document.querySelectorAll("section.view").forEach(s=>s.classList.toggle("on", s.id==="v-"+t));
+  renderAll();
+}
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>selectTab(b.dataset.tab));
+$("#placeSel").onchange = e=>{ ui.place=e.target.value; ui.group=null; CURSOR=null; saveUi(); renderAll(); };
+$("#rangeSel").onchange = e=>{ ui.range=+e.target.value; CURSOR=null; saveUi(); renderAll(); };
+$("#groupSel").onchange = e=>{ ui.group=e.target.value; saveUi(); renderAges(); };
+$("#hourVar").onchange = e=>{ ui.hourVar=e.target.value; saveUi(); renderHours(); };
+$("#trendPlaceOnly").onchange = ()=>renderDiscover();
+$("#dayType").onchange = e=>{ ui.dayType=e.target.value; saveUi(); renderHours(); };
+$("#refreshBtn").onclick = ()=>{ if (DATA&&DATA.demo) return; loadData(true); };
+$("#saveSettings").onclick = ()=>{ cfg.live=$("#liveInput").value.trim(); cfg.src=$("#srcInput").value.trim()||DEFAULT_SRC; cfg.interval=+$("#intervalSel").value; store.set("cfg",cfg); DATA=null; loadData(true); renderAll(); };
+$("#openFileBtn").onclick = ()=>$("#dataFile").click();
+$("#demoBtn").onclick = startDemo;
+$("#dataFile").onchange = async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  let txt = await f.text();
+  txt = txt.trim().replace(/^window\.__MEME_PULSE__\s*=\s*/,"").replace(/;\s*$/,"");
+  try { const d=JSON.parse(txt); if(!d.obs) throw 0; loadError=""; setData(d,false); nextLoad=Infinity; }
+  catch(err){ loadError = `‘${f.name}’은 수집기 자료 파일이 아닙니다. data 폴더의 history.json 또는 data.js를 고르세요.`; renderAll(); }
+  e.target.value="";
+};
+$("#fieldFile").onchange = async e=>{ const f=e.target.files[0]; if(!f) return; const t=await f.text(); $("#fieldText").value=t; loadFieldText(t); e.target.value=""; };
+$("#fieldLoad").onclick = ()=>loadFieldText($("#fieldText").value);
+$("#fieldClear").onclick = ()=>{ FIELD=[]; store.set("field",FIELD); $("#fieldMsg").textContent="현장 기록을 지웠습니다."; renderAll(); };
+$("#fieldTemplate").onclick = ()=>download("field_template.csv", FIELD_COLS.join(",")+"\n2026-10-10,worldcup,중,T3,16:40,1,85,42,21,일몰 40분 전\n2026-10-10,worldcup,중,T3,16:40,2,91,38,23,\n2026-10-10,worldcup,중,T3,16:40,3,78,45,22,\n");
+$("#exportLinked").onclick = exportLinked;
+$("#snsFile").onchange = async e=>{ const f=e.target.files[0]; if(!f) return; const rows=parseCSV((await f.text()).replace(/^\uFEFF/,"")); e.target.value="";
+  const head=(rows[0]||[]).map(h=>h.trim().toLowerCase()); const miss=["time","place","count"].filter(c=>!head.includes(c));
+  if (miss.length){ $("#snsMsg").textContent="빠진 열: "+miss.join(", "); return; }
+  SNS = rows.slice(1).map(r=>{ const o={}; head.forEach((h,i)=>o[h]=(r[i]??"").trim()); return o; }); store.set("sns",SNS);
+  $("#snsMsg").textContent = `${SNS.length}줄을 불러왔습니다. ‘연결 보기’에서 확인하세요.`; renderAll(); };
+$("#snsClear").onclick = ()=>{ SNS=[]; store.set("sns",SNS); $("#snsMsg").textContent="SNS 기록을 지웠습니다."; renderAll(); };
+$("#snsTemplate").onclick = ()=>download("sns_template.csv","time,place,platform,count,keyword\n2026-10-10,worldcup,instagram,120,하늘공원억새\n2026-10-11,worldcup,instagram,185,하늘공원억새\n");
+$("#exportField").onclick = exportField;
+let rz; addEventListener("resize", ()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(ui.tab==="linked") renderLinked(); }, 150); });
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", ()=>renderAll());
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && Date.now()>nextLoad && !(DATA&&DATA.demo)) loadData(false); });
+
+$("#howBody").innerHTML = FLOW_HTML;
+$("#guideLink").classList.remove("hidden");
+if (whereAmI().k==="claude") $("#guideLink").href = "https://claude.ai/artifact/3KX1Kfb4xcbSJrMxAwLywA";
+if (ui.tab==="guide") ui.tab="linked";
+selectTab(ui.tab||"linked");
+loadData(false);
+let tk=0; setInterval(()=>{ tickCountdown(); if (DATA && !DATA.demo && ++tk%20===0) renderLanes(); }, 1000);
+</script>
+</body>
+</html>

@@ -352,6 +352,7 @@ const SOURCES = [
   {id:"youtube",   name:"유튜브", sub:"최근 7일 업로드·조회수", cycle:380, unit:"fetch"},
   {id:"instagram", name:"인스타그램 해시태그", sub:"공식 API 표본, 1시간", cycle:200, unit:"fetch"},
   {id:"gplaces",   name:"구글 지도 리뷰", sub:"장소별 누적 리뷰 수, 하루 1회", cycle:1500, unit:"fetch"},
+  {id:"kakao",     name:"카카오 장소 검색", sub:"장소 검색 결과, 하루 1회", cycle:1500, unit:"fetch"},
   {id:"kw",        name:"밈 키워드 발굴", sub:"키워드 → 장소 자동 추리기", cycle:200, unit:"fetch"},
   {id:"scan",      name:"주요 장소 전체 스캔", sub:"밈 후보 자동 발굴", cycle:200, unit:"min"},
   {id:"trends",    name:"구글 급상승 검색어", sub:"한국, 인증키 불필요", cycle:60, unit:"min"},
@@ -449,7 +450,7 @@ function latestFor(srcId){
     for (const g of Object.values(DATA.search||{})) for (const arr of Object.values(g.ages||{})) { const p=arr[arr.length-1]; if(p){ const m=ms(p[0]); if(last==null||m>last) last=m; } }
     return last;
   }
-  if (["buzz","youtube","instagram","gplaces","kw"].includes(srcId)){ const l=DATA.status?.[srcId]?.lastSuccess; return l? ms(l) : null; }
+  if (["buzz","youtube","instagram","gplaces","kw","kakao"].includes(srcId)){ const l=DATA.status?.[srcId]?.lastSuccess; return l? ms(l) : null; }
   if (srcId==="scan") return DATA.discovery?.scannedAt ? ms(DATA.discovery.scannedAt) : null;
   if (srcId==="trends"){ const t=(DATA.trends||[])[0]; return t? ms(t.last) : null; }
   if (srcId==="x"){

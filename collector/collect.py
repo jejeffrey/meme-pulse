@@ -510,12 +510,23 @@ def mine_rising_terms(cfg, keys, kw):
     kw["baseline_runs"] = len(base_runs)
     return rising
 
+def kakao_local_search(keys, term):
+    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+    headers = {
+        "Authorization": f"KakaoAK {keys['KAKAO_REST_API_KEY']}"
+    }
+    params = {
+        "query": term,
+        "size": 5
+    }
 
-def local_search(keys, term):
-    url = f"https://openapi.naver.com/v1/search/local.json?display=5&query={urllib.parse.quote(term)}"
-    j = json.loads(http(url, headers={"X-Naver-Client-Id": keys["NAVER_CLIENT_ID"],
-                                      "X-Naver-Client-Secret": keys["NAVER_CLIENT_SECRET"]}))
-    return j.get("items", [])
+    j = json.loads(http(
+        url,
+        headers=headers,
+        params=params
+    ))
+
+    return j.get("documents", [])
 
 
 def citydata_names(hist):
@@ -544,11 +555,11 @@ def resolve_place(keys, term, names):
         cd = None
     if cd:
         return {"name": cd["name"], "citydata": cd, "gu": "", "addr": "", "category": "서울 주요 장소", "via": "주요 장소 이름"}
-    items = [it for it in local_search(keys, term) if (it.get("address") or it.get("roadAddress") or "").startswith("서울")]
+    items = [it for it in kakao_local_search(keys, term) if (it.get("address") or it.get("road_address_name") or "").startswith("서울")]
     if not items:
         return None
     it = items[0]
-    addr = it.get("address") or it.get("roadAddress")
+    addr = it.get("address") or it.get("road_address_name")
     parts = addr.split()
     gu = parts[1] if len(parts) > 1 and parts[1].endswith("구") else ""
     dong = re.sub(r"\d*(가|동)$", "", parts[2]) if len(parts) > 2 else ""

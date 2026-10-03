@@ -528,6 +528,25 @@ def kakao_local_search(keys, term):
 
     return j.get("documents", [])
 
+def fetch_kakao(cfg, keys, hist):
+    """카카오 장소 검색 API로 주요 장소 데이터를 수집."""
+    out = 0
+
+    for g in all_groups(cfg, hist):
+        q = g.get("kakao_query") or g["keywords"][0]
+
+        try:
+            items = kakao_local_search(keys, q)
+
+            # 검색 결과가 있으면 저장
+            if items:
+                out += len(items)
+
+        except Exception as e:
+            log(f"Kakao 오류: {e}")
+
+    return out
+
 
 def citydata_names(hist):
     board = hist.get("discovery", {}).get("board", [])
@@ -894,6 +913,7 @@ def fetch_google_places(cfg, keys, hist):
 def run_social(cfg, keys, hist):
     soc = cfg.get("social", {})
     jobs = [
+        ("kakao", 23, keys.get("KAKAO_REST_API_KEY"), fetch_kakao, "KAKAO_REST_API_KEY"),
         ("buzz", soc.get("buzz_refresh_hours", 3), keys.get("NAVER_CLIENT_ID") and keys.get("NAVER_CLIENT_SECRET"),
          fetch_naver_buzz, "NAVER_CLIENT_ID / NAVER_CLIENT_SECRET (검색 API 추가 필요)"),
         ("youtube", soc.get("youtube_refresh_hours", 6), keys.get("YOUTUBE_API_KEY"), fetch_youtube, "YOUTUBE_API_KEY"),

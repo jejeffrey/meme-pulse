@@ -529,24 +529,39 @@ def kakao_local_search(keys, term):
     return j.get("documents", [])
 
 def fetch_kakao(cfg, keys, hist):
-    """카카오 장소 검색 API로 주요 장소 데이터를 수집."""
-    out = 0
+    """Kakao 장소 검색 결과를 history에 저장."""
+    out = hist.get("kakao", {})
+    total = 0
 
-    for g in all_groups(cfg, hist):
-        q = g.get("kakao_query") or g["keywords"][0]
+    # config에 kakao_places가 있으면 그것을 사용
+    queries = cfg.get("kakao_places", [])
 
-        try:
-            items = kakao_local_search(keys, q)
+    # 없으면 google_places의 query를 재사용
+    if not queries:
+        queries = [
+            {"query": x.get("query"), "place": x.get("place")}
+            for x in cfg.get("google_places", [])
+            if x.get("query")
+        ]
 
-            # 검색 결과가 있으면 저장
-            if items:
-                out += len(items)
+    for item in queries:
+        query = item.get("query")
+        if not query:
+            continue
 
-        except Exception as e:
-            log(f"Kakao 오류: {e}")
+        results = kakao_local_search(keys, query)
 
-    return out
+        out[query] = {
+            "query": query,
+            "place": item.get("place", query),
+            "fetchedAt": iso(now()),
+            "results": results,
+        }
 
+        total += len(results)
+
+    hist["kakao"] = out
+    return total
 
 def citydata_names(hist):
     board = hist.get("discovery", {}).get("board", [])

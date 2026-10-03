@@ -510,22 +510,11 @@ def mine_rising_terms(cfg, keys, kw):
     kw["baseline_runs"] = len(base_runs)
     return rising
 
-def kakao_local_search(keys, term):
-    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
-    headers = {
-        "Authorization": f"KakaoAK {keys['KAKAO_REST_API_KEY']}"
-    }
-    params = {
-        "query": term,
-        "size": 5
-    }
-
-    j = json.loads(http(
-        url,
-        headers=headers,
-        params=params
-    ))
-
+def kakao_local_search(keys, term, size=5):
+    url = ("https://dapi.kakao.com/v2/local/search/keyword.json?"
+           + urllib.parse.urlencode({"query": term, "size": size}))
+    headers = {"Authorization": f"KakaoAK {keys['KAKAO_REST_API_KEY']}"}
+    j = json.loads(http(url, headers=headers))
     return j.get("documents", [])
 
 def fetch_kakao(cfg, keys, hist):
@@ -589,28 +578,27 @@ def resolve_place(keys, term, names):
         cd = None
     if cd:
         return {"name": cd["name"], "citydata": cd, "gu": "", "addr": "", "category": "서울 주요 장소", "via": "주요 장소 이름"}
-    items = [it for it in kakao_local_search(keys, term) if (it.get("address") or it.get("road_address_name") or "").startswith("서울")]
+    items = [it for it in kakao_local_search(keys, term)
+             if (it.get("address_name") or "").startswith("서울")]
     if not items:
         return None
     it = items[0]
-    addr = it.get("address") or it.get("road_address_name")
-    parts = addr.split()
+    full = it.get("address_name") or ""
+    addr = it.get("road_address_name") or full
+    parts = full.split()
     gu = parts[1] if len(parts) > 1 and parts[1].endswith("구") else ""
     dong = re.sub(r"\d*(가|동)$", "", parts[2]) if len(parts) > 2 else ""
-    lat = lon = None
     try:
-        mx, my = int(it.get("mapx")), int(it.get("mapy"))
-        if mx > 10 ** 8:                        # WGS84 × 10^7 형식
-            lon, lat = mx / 1e7, my / 1e7
+        lon, lat = float(it["x"]), float(it["y"])
     except Exception:
-        pass
-    name = clean_title(it.get("title"))
-    cd = match_citydata(name + " " + dong, names) if dong or name else None
+        lon = lat = None
+    name = it.get("place_name") or term
+    cd = match_citydata(name + " " + dong, names)
     if cd:
         cd.pop("_len", None)
-    return {"name": name, "citydata": cd, "gu": gu, "dong": dong, "addr": addr, "category": it.get("category", ""),
-            "lat": lat, "lon": lon, "via": "네이버 지역 검색"}
-
+    return {"name": name, "citydata": cd, "gu": gu, "dong": dong, "addr": addr,
+            "category": it.get("category_name", ""), "lat": lat, "lon": lon,
+            "via": "카카오 로컬 검색"}
 
 def blog_rise(keys, term):
     """최근 3일 하루 평균 블로그 글 수 ÷ 그 전 7일 하루 평균."""
@@ -1154,7 +1142,7 @@ def run_once(cfg, keys):
 def check(cfg, keys):
     print("설정 점검")
     for k in ("SEOUL_API_KEY", "AIRKOREA_API_KEY", "NAVER_CLIENT_ID", "NAVER_CLIENT_SECRET", "X_BEARER_TOKEN",
-              "YOUTUBE_API_KEY", "IG_USER_ID", "IG_ACCESS_TOKEN", "GOOGLE_MAPS_API_KEY"):
+              "YOUTUBE_API_KEY", "IG_USER_ID", "IG_ACCESS_TOKEN", "GOOGLE_MAPS_API_KEY","KAKAO_REST_API_KEY"):
         v = keys.get(k)
         print(f"  {k:22s} {'있음 (' + v[:4] + '…)' if v else '없음'}")
     print(f"  장소 {len(cfg['places'])}곳, 검색어 그룹 {len(cfg['keyword_groups'])}개")

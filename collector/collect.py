@@ -66,7 +66,7 @@ def load_keys():
                     keys[k.strip()] = v.strip().strip('"').strip("'")
     for k in ("SEOUL_API_KEY", "AIRKOREA_API_KEY", "NAVER_CLIENT_ID",
               "NAVER_CLIENT_SECRET", "X_BEARER_TOKEN", "YOUTUBE_API_KEY",
-              "IG_USER_ID", "IG_ACCESS_TOKEN", "GOOGLE_MAPS_API_KEY"):
+              "IG_USER_ID", "IG_ACCESS_TOKEN", "GOOGLE_MAPS_API_KEY","KAKAO_REST_API_KEY"):
         if os.environ.get(k):
             keys[k] = os.environ[k].strip()
     return keys

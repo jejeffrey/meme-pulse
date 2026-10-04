@@ -1,7 +1,7 @@
 {
   "kakao_places": [
   {"query": "서울숲", "place": "seoulforest"}
-]
+],
   "_설명": "장소를 미리 정하지 않아도 됩니다. keyword_discovery가 밈 키워드에서 장소를 찾아 추적합니다. places는 현장 실험지처럼 항상 볼 곳만 적으세요. README 3-1장, 7장 참고.",
   "places": [
     {

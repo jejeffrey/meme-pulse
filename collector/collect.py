@@ -235,13 +235,13 @@ def fetch_naver(cid, secret, groups, days):
             body = {
                 "startDate": start.isoformat(), "endDate": end.isoformat(),
                 "timeUnit": "date",
-                "keywordGroups": [{"groupName": g["name"], "keywords": g["keywords"][:20]} for g in chunk],
+                "keywordGroups": [{"groupName": g["name"], "keywords": g["keywords"][:5]} for g in chunk],
             }
             if ages:
                 body["ages"] = ages
-            txt = http("https://openapi.naver.com/v1/datalab/search",
+            txt = http("https://naverapihub.apigw.ntruss.com/search-trend/v1/search",
                        data=json.dumps(body).encode("utf-8"),
-                       headers={"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret,
+                       headers={"X-NCP-APIGW-API-KEY-ID": cid, "X-NCP-APIGW-API-KEY": secret,
                                 "Content-Type": "application/json"})
             j = json.loads(txt)
             if "results" not in j:
@@ -753,9 +753,9 @@ def merge_daily(old_rows, new_counts, covered_from):
 def naver_search(cid, secret, kind, query, pages):
     items, total = [], None
     for p in range(pages):
-        url = (f"https://openapi.naver.com/v1/search/{kind}.json?display=100&sort=date&start={1 + p * 100}"
+        url = (f"https://naverapihub.apigw.ntruss.com/search/v1/{kind}?display=100&sort=date&start={1 + p * 100}"
                f"&query={urllib.parse.quote(query)}")
-        j = json.loads(http(url, headers={"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret}))
+        j = json.loads(http(url, headers={"X-NCP-APIGW-API-KEY-ID": cid, "X-NCP-APIGW-API-KEY": secret}))
         total = j.get("total", total)
         got = j.get("items", [])
         items += got

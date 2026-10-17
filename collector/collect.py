@@ -198,7 +198,15 @@ def fetch_air(key, station, place_ids, kind):
     url = ("https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
            f"?serviceKey={k}&returnType=json&numOfRows=6&pageNo=1"
            f"&stationName={urllib.parse.quote(station)}&dataTerm=DAILY&ver=1.3")
-    txt = http(url)
+    txt = None
+    for attempt in range(2):
+        try:
+            txt = http(url, timeout=30)
+            break
+        except Exception:
+            if attempt == 1:
+                raise
+            time.sleep(2)
     if txt.lstrip().startswith("<"):
         msg = txt.split("<returnAuthMsg>")[-1].split("<")[0] if "returnAuthMsg" in txt else txt[:200]
         raise RuntimeError(f"{station}: {msg}")

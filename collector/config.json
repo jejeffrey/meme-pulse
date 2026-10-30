@@ -1,7 +1,11 @@
 {
   "kakao_places": [
-  {"query": "서울숲", "place": "seoulforest"}
-],
+    {
+      "query": "서울숲",
+      "place": "seoulforest"
+    }
+  ],
+  "kakao_store": false,
   "_설명": "장소를 미리 정하지 않아도 됩니다. keyword_discovery가 밈 키워드에서 장소를 찾아 추적합니다. places는 현장 실험지처럼 항상 볼 곳만 적으세요. README 3-1장, 7장 참고.",
   "places": [
     {
@@ -19,6 +23,104 @@
       "air_roadside": "신촌로"
     }
   ],
+  "schedule": {
+    "_설명": "자료원별 갱신 시간표 (한국시간). every_min 분마다 한 번, offset_min 분에 칸이 시작. 원 자료의 갱신 주기와 호출 한도에 맞춘 최소 비용 설정입니다. 작업정리 문서 '비용 최적화' 참고.",
+    "_run_budget_sec": 240,
+    "_workers": 4,
+    "seoul": {
+      "every_min": 10,
+      "offset_min": 0
+    },
+    "recs_live": {
+      "every_min": 30,
+      "offset_min": 0
+    },
+    "air": {
+      "every_min": 60,
+      "offset_min": 20
+    },
+    "trends": {
+      "every_min": 60,
+      "offset_min": 2
+    },
+    "x": {
+      "every_min": 1440,
+      "offset_min": 20
+    },
+    "scan": {
+      "every_min": 180,
+      "offset_min": 5
+    },
+    "kw": {
+      "every_min": 180,
+      "offset_min": 10
+    },
+    "buzz": {
+      "every_min": 360,
+      "offset_min": 15
+    },
+    "instagram": {
+      "every_min": 360,
+      "offset_min": 25
+    },
+    "naver": {
+      "every_min": 1440,
+      "offset_min": 630
+    },
+    "youtube": {
+      "every_min": 1440,
+      "offset_min": 400
+    },
+    "kakao": {
+      "every_min": 10080,
+      "offset_min": 60
+    },
+    "gplaces": {
+      "every_min": 1440,
+      "offset_min": 1425
+    }
+  },
+  "recommend": {
+    "_설명": "밈 추천: 밈 신호 35 + 인구 측정 가능성 35 + 미세먼지 측정 가능성 20 + 현장 실용성 10 = 100점. README 11장.",
+    "top": 10,
+    "min_score": 25,
+    "max_age_days": 3,
+    "live_top": 5,
+    "fetch_air": true,
+    "air_top": 4
+  },
+  "air_roadside_by_gu": {
+    "_설명": "구 → 짝지을 에어코리아 도로변 측정소 이름. 틀린 이름은 수집기가 스스로 찾아내 일주일간 쉬고 화면에 '확인 필요'로 표시합니다. 성동구·마포구는 실제 수집으로 확인된 값입니다.",
+    "성동구": "강변북로",
+    "마포구": "신촌로",
+    "강서구": "공항대로",
+    "강남구": "도산대로",
+    "서초구": "강남대로",
+    "동작구": "동작대로 중앙차로",
+    "영등포구": "영등포로",
+    "성북구": "정릉로",
+    "종로구": "종로",
+    "중구": "청계천로",
+    "용산구": "한강대로",
+    "동대문구": "홍릉로",
+    "노원구": "화랑로",
+    "강동구": "천호대로"
+  },
+  "google_maps": {
+    "_설명": "구글 지도. GOOGLE_MAPS_API_KEY(서버용, Places API (New))가 있으면 하루 한 번 리뷰 수를 모읍니다. auto_places가 켜져 있으면 추적·추천 중인 밈 장소도 자동으로 포함합니다. embed_key는 화면 지도용(브라우저 키, 웹사이트 제한 필수). README 12장.",
+    "auto_places": true,
+    "auto_recs": 5,
+    "max_auto_places": 12,
+    "monthly_cap": 900,
+    "embed_key": ""
+  },
+  "api_limits": {
+    "_설명": "하루(구글 지도는 한 달) 호출 상한. 넘기 전에 수집기가 스스로 멈춰 그날 다른 자료까지 막히는 일을 막습니다. 에어코리아 개발계정은 하루 500회가 일반적입니다.",
+    "airkorea": 480,
+    "naver": 24000,
+    "kakao": 90000,
+    "youtube": 9000
+  },
   "keyword_discovery": {
     "_설명": "밈 키워드에서 장소를 찾는 설정. seed_keywords에 추적하고 싶은 밈을 직접 넣을 수도 있습니다.",
     "enabled": true,

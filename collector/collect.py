@@ -17,8 +17,10 @@ import datetime as dt
 import json
 import os
 import sys
+import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -72,17 +74,76 @@ def load_keys():
     return keys
 
 
-def http(url, data=None, headers=None, timeout=25):
-    req = urllib.request.Request(url, data=data, headers=headers or {})
-    req.add_header("User-Agent", "MemePulse/1.0")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:300]
-        raise RuntimeError(f"HTTP {e.code}: {body}") from None
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"접속 실패: {e.reason}") from None
+# ---------------------------------------------------------------- 호출 수 보호 (하루 한도)
+# 인증키마다 하루(구글 지도는 한 달) 호출 한도가 있다. 한도를 넘기면 그날 나머지 수집이 모두 실패해
+# '지연'처럼 보이므로, 한도 근처에서 덜 중요한 호출부터 스스로 멈춘다.
+API_OF_HOST = {
+    "openapi.seoul.go.kr": "seoul", "apis.data.go.kr": "airkorea",
+    "naverapihub.apigw.ntruss.com": "naver", "dapi.kakao.com": "kakao",
+    "www.googleapis.com": "youtube", "places.googleapis.com": "gplaces",
+    "graph.facebook.com": "instagram", "api.x.com": "x", "trends.google.com": "trends",
+}
+DEFAULT_LIMITS = {"airkorea": 480, "naver": 24000, "kakao": 90000, "youtube": 9000}   # 하루 기준
+MONTHLY = {"gplaces"}                                                                  # 한 달 기준
+_QUOTA = {"hist": None, "limits": {}, "lock": threading.Lock()}
+
+
+def quota_key(api):
+    return now().strftime("%Y-%m") if api in MONTHLY else now().strftime("%Y-%m-%d")
+
+
+def quota_init(hist, cfg):
+    q = hist.setdefault("quota", {})
+    keep = {now().strftime("%Y-%m-%d"), (now() - dt.timedelta(days=1)).strftime("%Y-%m-%d"), now().strftime("%Y-%m")}
+    for api in list(q):
+        q[api] = {k: v for k, v in q[api].items() if k in keep}
+    lim = dict(DEFAULT_LIMITS)
+    lim.update(cfg.get("api_limits", {}))
+    lim.setdefault("gplaces", (cfg.get("google_maps") or {}).get("monthly_cap", 900))
+    _QUOTA.update(hist=hist, limits={k: v for k, v in lim.items() if not str(k).startswith("_")})
+
+
+def quota_count(api):
+    h = _QUOTA["hist"]
+    if h is None or not api:
+        return 0
+    return h.setdefault("quota", {}).get(api, {}).get(quota_key(api), 0)
+
+
+def quota_take(api):
+    h = _QUOTA["hist"]
+    if h is None or not api:
+        return
+    with _QUOTA["lock"]:
+        lim = _QUOTA["limits"].get(api)
+        used = quota_count(api)
+        if lim and used >= lim:
+            raise RuntimeError(f"호출 한도 보호: {api} {'이번 달' if api in MONTHLY else '오늘'} {used}/{lim}회 사용 (config.json api_limits)")
+        h["quota"].setdefault(api, {})[quota_key(api)] = used + 1
+
+
+def http(url, data=None, headers=None, timeout=25, retries=2):
+    """일시적 오류(접속 끊김, 시간 초과, 5xx, 429)는 잠깐 쉬었다가 다시 시도한다.
+    인증·요청 오류(4xx)는 다시 해도 같으므로 바로 알린다."""
+    api = API_OF_HOST.get(urllib.parse.urlsplit(url).hostname or "")
+    for attempt in range(retries + 1):
+        quota_take(api)
+        req = urllib.request.Request(url, data=data, headers=headers or {})
+        req.add_header("User-Agent", "MemePulse/1.1")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")[:300]
+            if (e.code >= 500 or e.code == 429) and attempt < retries:
+                time.sleep(2 * (attempt + 1) + (3 if e.code == 429 else 0))
+                continue
+            raise RuntimeError(f"HTTP {e.code}: {body}") from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+            if attempt < retries:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise RuntimeError(f"접속 실패: {getattr(e, 'reason', e)}") from None
 
 
 def num(v):
@@ -196,17 +257,9 @@ def fetch_seoul(key, place):
 def fetch_air(key, station, place_ids, kind):
     k = key if "%" in key else urllib.parse.quote(key, safe="")
     url = ("https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getMsrstnAcctoRltmMesureDnsty"
-           f"?serviceKey={k}&returnType=json&numOfRows=6&pageNo=1"
+           f"?serviceKey={k}&returnType=json&numOfRows=24&pageNo=1"   # 24시간치: 수집이 몇 시간 늦어도 빈칸 없이 메움
            f"&stationName={urllib.parse.quote(station)}&dataTerm=DAILY&ver=1.3")
-    txt = None
-    for attempt in range(2):
-        try:
-            txt = http(url, timeout=30)
-            break
-        except Exception:
-            if attempt == 1:
-                raise
-            time.sleep(2)
+    txt = http(url, timeout=30, retries=2)
     if txt.lstrip().startswith("<"):
         msg = txt.split("<returnAuthMsg>")[-1].split("<")[0] if "returnAuthMsg" in txt else txt[:200]
         raise RuntimeError(f"{station}: {msg}")
@@ -302,10 +355,16 @@ def scan_place(key, code):
         if len(parts) == 2 and parts[0] <= today <= parts[1]:
             event = ev.get("EVENT_NM")
             break
+    wt = first_dict_with(city.get("WEATHER_STTS"), "WEATHER_TIME") or {}
+    road = find(city.get("ROAD_TRAFFIC_STTS"), "AVG_ROAD_DATA") or {}
     return {"code": code, "name": city.get("AREA_NM") or pp.get("AREA_NM") or code,
             "t": parse_time(pp.get("PPLTN_TIME")) or iso(now()),
             "pop": (lo + hi) / 2, "cg": CONGEST.get(str(pp.get("AREA_CONGEST_LVL", "")).strip()),
-            "y": y, "ev": event}
+            "y": y, "ev": event,
+            # 아래 값은 추천 계산용(현재 상태)으로만 쓰고 scan.json에는 저장하지 않는다
+            "_spd": num(road.get("ROAD_TRAFFIC_SPD")), "_wind": num(wt.get("WIND_SPD")),
+            "_pm25": num(wt.get("PM25")), "_pm10": num(wt.get("PM10")), "_temp": num(wt.get("TEMP")),
+            "_rain": num(wt.get("PRECIPITATION")) if str(wt.get("PRECIPITATION", "")).replace(".", "", 1).isdigit() else None}
 
 
 def load_json(name, default):
@@ -317,57 +376,68 @@ def load_json(name, default):
         return default
 
 
+def _slot_hw(t):
+    x = dt.datetime.strptime(t[:16], "%Y-%m-%dT%H:%M")
+    return x.hour, x.weekday() >= 5
+
+
+def baseline_of(rows_of_code, t, min_n=3):
+    """같은 장소, 같은 평일/주말, 앞뒤 1시간 이내 시각, 최근 24시간 제외한 인구 중앙값."""
+    import statistics
+    recent = iso(now() - dt.timedelta(hours=24))
+    h, we = _slot_hw(t)
+    base = [b for b in rows_of_code if b["t"] < recent and _slot_hw(b["t"])[1] == we
+            and min(abs(_slot_hw(b["t"])[0] - h), 24 - abs(_slot_hw(b["t"])[0] - h)) <= 1]
+    if len(base) < min_n:
+        return None, None, len(base)
+    return (statistics.median([b["pop"] for b in base]),
+            statistics.median([b.get("y") or 0 for b in base]), len(base))
+
+
+def pmap(fn, items, workers=4):
+    """작은 스레드 묶음으로 동시에 호출한다 (서울·에어코리아 응답 대기 시간을 줄임)."""
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        return list(ex.map(fn, items))
+
+
 def run_scan(cfg, key, hist):
     """주요 장소 전체를 훑어 평소 같은 시간대 대비 인구 배율을 계산한다."""
     d = cfg.get("discovery", {})
     scan = load_json("scan.json", {"rows": [], "codes": []})
-    last = hist["status"].get("scan", {}).get("lastSuccess")
-    if last and now() - dt.datetime.strptime(last, "%Y-%m-%dT%H:%M").replace(tzinfo=KST) \
-            < dt.timedelta(hours=d.get("scan_every_hours", 3)) - dt.timedelta(minutes=10):
-        log("전체 장소 스캔: 주기 전이라 건너뜀")
-        return
     codes = scan.get("codes") or [f"POI{i:03d}" for i in range(1, d.get("max_code", 130) + 1)]
-    found, rows, errs = [], [], 0
-    for code in codes:
+
+    def one(code):
         try:
-            r = scan_place(key, code)
-            if r:
-                rows.append(r)
-                found.append(code)
-        except Exception:
-            errs += 1
-        time.sleep(0.1)
+            return scan_place(key, code), None
+        except Exception as e:
+            return None, str(e)
+    res = pmap(one, codes, (cfg.get("schedule") or {}).get("_workers", 4))
+    rows = [r for r, _ in res if r]
+    found = [r["code"] for r in rows]
+    errs = sum(1 for _, e in res if e)
     if not rows:
-        set_status(hist, "scan", False, f"응답한 장소가 없습니다 (오류 {errs}건)")
-        return
+        first_err = next((e for _, e in res if e), "")
+        raise RuntimeError(f"응답한 장소가 없습니다 (오류 {errs}건) {first_err[:120]}")
     if not scan.get("codes"):
         scan["codes"] = found            # 처음 한 번 실제 존재하는 코드만 기억
     cutoff = iso(now() - dt.timedelta(days=d.get("baseline_days", 28)))
-    scan["rows"] = [r for r in scan.get("rows", []) if r["t"] >= cutoff] + rows
+    stored = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    scan["rows"] = [r for r in scan.get("rows", []) if r["t"] >= cutoff] + stored
     save_json("scan.json", scan)
+    hist["_scan_live"] = {r["code"]: r for r in rows}     # 이번 실행에서만 쓰는 현재 상태 (저장 안 함)
 
-    # 평소 대비 배율: 같은 장소, 같은 평일/주말, 앞뒤 1시간 이내 시각, 최근 24시간 제외
-    import statistics
-    def slot(t):
-        x = dt.datetime.strptime(t, "%Y-%m-%dT%H:%M")
-        return x.hour, x.weekday() >= 5
-    recent = iso(now() - dt.timedelta(hours=24))
     by_code = {}
     for r in scan["rows"]:
         by_code.setdefault(r["code"], []).append(r)
     cands = hist.get("discovery", {}).get("candidates", {})
     board = []
     for r in rows:
-        h, we = slot(r["t"])
-        base = [b for b in by_code.get(r["code"], []) if b["t"] < recent
-                and slot(b["t"])[1] == we and min(abs(slot(b["t"])[0] - h), 24 - abs(slot(b["t"])[0] - h)) <= 1]
-        n = len(base)
-        med = statistics.median([b["pop"] for b in base]) if n >= d.get("min_baseline", 3) else None
-        ymed = statistics.median([b["y"] for b in base]) if med else None
+        med, ymed, n = baseline_of(by_code.get(r["code"], []), r["t"], d.get("min_baseline", 3))
         ratio = r["pop"] / med if med else None
         item = {"code": r["code"], "name": r["name"], "t": r["t"], "pop": r["pop"], "cg": r["cg"],
                 "ratio": round(ratio, 2) if ratio else None, "base_n": n,
-                "dy": round(r["y"] - ymed, 1) if ymed is not None else None, "ev": r["ev"]}
+                "dy": round(r["y"] - ymed, 1) if ymed is not None else None, "ev": r["ev"],
+                "spd": r.get("_spd"), "wind": r.get("_wind"), "pm25": r.get("_pm25")}
         board.append(item)
         hot = ratio is not None and ratio >= d.get("ratio_threshold", 1.4) and r["pop"] >= d.get("min_pop", 2000)
         if hot:
@@ -381,8 +451,8 @@ def run_scan(cfg, key, hist):
     board.sort(key=lambda x: -(x["ratio"] or 0))
     hist["discovery"] = {"scannedAt": iso(now()), "places": len(rows), "board": board,
                          "candidates": cands}
-    set_status(hist, "scan", True, f"오류 {errs}건" if errs else "", len(rows))
-    log(f"전체 장소 스캔 {len(rows)}곳, 후보 {len(cands)}곳")
+    log(f"전체 장소 스캔 {len(rows)}곳, 후보 {len(cands)}곳" + (f", 오류 {errs}건" if errs else ""))
+    return len(rows)
 
 
 def fetch_trends(hist, cfg):
@@ -460,6 +530,87 @@ MONTH = re.compile(r"^\d+(월|일|년|시|개|차|탄|편|번째|위|곳)?$")
 PARTICLE = re.compile(r"(에서|으로|까지|부터|이랑|하고|에게|처럼|은|는|이|가|을|를|의|에|도|와|과|로)$")
 
 
+# ---------------------------------------------------------------- 밈 키워드 품질 검사
+# 실제 수집 기록에서 '운전'→운전학원, '조국'→호프집, '가을'→카페 '가을' 처럼 흔한 말이 엉뚱한 가게로
+# 풀려 추적 장소를 오염시켰다. 장소 밈으로 볼 수 있는 키워드만 통과시킨다.
+AREA_STEMS = set("""성수 성수동 연남 연남동 연희 망원 망리단길 합정 상수 홍대 신촌 이대 을지로 힙지로 익선 익선동 종로 북촌 서촌
+삼청 인사동 명동 남산 이태원 한남 해방촌 경리단길 용리단길 용산 삼각지 압구정 로데오 청담 신사 가로수길 강남 역삼 선릉 삼성
+코엑스 잠실 석촌 석촌호수 송리단길 방이 건대 뚝섬 왕십리 서울숲 여의도 더현대 영등포 문래 당산 목동 마곡 상암 난지 하늘공원
+노들섬 노들 반포 서래 세빛섬 고속터미널 동대문 DDP 혜화 대학로 광장시장 낙산 청계천 광화문 시청 덕수궁 경복궁 창덕궁 창경궁
+롯데월드 롯데타워 한강 북한산 인왕산 수유 공릉 경의선숲길 연트럴파크 샤로수길 신림 사당 노량진 흑석 대림 가산 신도림 천호
+고덕 서대문 은평 불광 연신내 정릉 쌍문 창동 청량리 회기 동묘 신당 신당동 약수 후암 해방촌 남영 서울역 북서울꿈의숲 올림픽공원
+여의도공원 선유도 양화 망원한강 반포한강 이촌 뚝섬한강 잠원 응봉 낙성대 보라매 서울대공원 어린이대공원 남산타워""".split())
+SEASON_MEME = set("""핑크뮬리 억새 억새축제 단풍길 벚꽃 벚꽃길 코스모스 수국 튤립 해바라기 은행나무 은행나무길 메타세쿼이아 야경 루미나리
+일루미네이션 크리스마스트리 빛축제 불꽃놀이 장미 장미원 유채꽃 국화 국화축제 설경""".split())
+GENERIC = set("""가을 겨울 봄 여름 일정 이유 비교 많은 필수 완벽 이제 꿀팁 솔직후기 본점 디저트 술집 단풍 단풍명소 코스 빵지순례 맛집투어
+역대급 놓치면 온라인 부모님 오션뷰 할로윈 크리스마스 주차 가격 후기 데이트코스 데이트 여행 혼밥 브런치 고기 고기집 고깃집 편의점
+쇼핑 대여 러닝 귀여운 듀오 가수 과일 어린이집 저작권 일상 근황 리뷰 추천 정보 방법 신상 오픈 이벤트 할인 굿즈 체험 나들이""".split())
+CAT_BLOCK = ("의료", "병원", "약국", "미용", "부동산", "교육", "학원", "학교", "사회,공공기관", "공공기관", "종교", "교회", "성당",
+             "교통,수송", "서비스,산업", "금융", "은행", "주거", "회사", "기업", "대사관", "법률", "주유", "자동차", "숙박", "산업")
+CAT_FRIENDLY = ("카페", "디저트", "제과", "베이커리", "팝업", "이벤트", "전시", "미술관", "박물관", "갤러리", "공원", "관광", "명소",
+                "쇼핑", "백화점", "테마", "거리", "시장", "음식점", "서울 주요 장소", "문화,예술", "여행")
+CAT_OUTDOOR = ("공원", "거리", "관광", "명소", "시장", "서울 주요 장소", "광장", "한강", "숲")
+
+
+def _ns(s):
+    return re.sub(r"\s+", "", s or "")
+
+
+def place_stems(place, names=()):
+    """장소에서 '지역 이름'으로 쓸 수 있는 말들 (구·동, 서울 주요 장소 이름 줄기)."""
+    st = set(AREA_STEMS)
+    if place:
+        gu = (place.get("gu") or "").rstrip("구")
+        if len(gu) >= 2:
+            st.add(gu)
+        if place.get("dong") and len(place["dong"]) >= 2:
+            st.add(place["dong"])
+        cd = place.get("citydata") or {}
+        for p in re.split(r"[·()\s]", cd.get("name", "")):
+            p = re.sub(r"(역|관광특구|한강공원|카페거리|거리|공원|시장)$", "", p.strip())
+            if len(p) >= 2:
+                st.add(p)
+    return {s for s in st if len(s) >= 2}
+
+
+def meme_gate(term, place, source, trend_related=True, names=()):
+    """(통과 여부, 이유, 종류) — 종류: '장소 밈' | '지역명' | '계절 밈' | '가게 밈' | '직접 입력'"""
+    if source == "직접 입력":
+        return True, "", "직접 입력"
+    if not place:
+        return False, "서울 장소로 풀리지 않음", ""
+    cat = place.get("category", "")
+    if any(b in cat for b in CAT_BLOCK):
+        return False, "장소 종류가 밈과 무관 (병원·학원·회사·은행 등)", ""
+    if source == "구글 급상승" and not trend_related:
+        return False, "뉴스·인물 급상승어 (장소 관련 단어 없음)", ""
+    t = _ns(term)
+    if term in GENERIC or t in GENERIC:
+        return False, "흔한 말", ""
+    if re.fullmatch(r"[\d,.]+(원|천원|만원|%|개|명|층|호|번)?", t):
+        return False, "숫자·가격", ""
+    toks = term.split()
+    stems = place_stems(place, names)
+    area = [s for s in stems if any(tok.startswith(s) for tok in toks)]
+    if area:
+        only_area = all(any(tok == s or tok == s + "동" for s in stems) for tok in toks)
+        return True, "", "지역명" if only_area else "장소 밈"
+    season = any(any(tok.startswith(w) for w in SEASON_MEME) for tok in toks)
+    if season:
+        if place.get("citydata") or any(c in cat for c in CAT_OUTDOOR):
+            return True, "", "계절 밈"
+        return False, "계절 밈이지만 야외 명소로 풀리지 않음", ""
+    name = _ns(place.get("name", ""))
+    name_hit = len(t) >= 3 and (t in name or any(len(w) >= 3 and w in t for w in re.split(r"\s+", place.get("name", ""))))
+    if name_hit and any(c in cat for c in CAT_FRIENDLY):
+        amb = place.get("amb")
+        if amb is not None and amb >= 3:
+            return False, f"같은 이름의 가게가 서울에 {amb}곳 (특정 불가)", ""
+        if len(toks) >= 2 or len(t) >= 4 or amb is not None:
+            return True, "", "가게 밈"
+    return False, "장소를 특정하기 어려운 말", ""
+
+
 def clean_title(t):
     return _html.unescape(re.sub(r"<[^>]+>", "", t or ""))
 
@@ -488,7 +639,9 @@ def mine_rising_terms(cfg, keys, kw):
         for it in items:
             counts.update(terms_of(it.get("title"), extra))
         time.sleep(0.1)
-    if keys.get("YOUTUBE_API_KEY") and k.get("mine_youtube", True):
+    yt_day = now().strftime("%Y-%m-%d")
+    if keys.get("YOUTUBE_API_KEY") and k.get("mine_youtube", True) and kw.get("yt_mined") != yt_day:
+        kw["yt_mined"] = yt_day          # 유튜브 검색은 1회 100단위(하루 약 100회 한도) → 제목 채굴은 하루 한 번만
         after = (now() - dt.timedelta(days=2)).astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         for q in k.get("seed_queries", [])[:2]:     # 유튜브 할당량 절약: 앞 2개만
             try:
@@ -572,7 +725,9 @@ def match_citydata(text, names):
         parts = [p.strip() for p in re.split(r"[·()\s]", name) if len(p.strip()) >= 2]
         stems = {p for p in parts} | {re.sub(r"(역|공원|거리|시장|관광특구|한강공원|카페거리)$", "", p) for p in parts}
         stems = {s for s in stems if len(s) >= 2}
-        hit = [s for s in stems if s in text]
+        # 낱말 앞부분이 맞을 때만 인정 ('봉명동'이 '명동'으로 잘못 이어지던 문제)
+        words = re.split(r"\s+", text)
+        hit = [s for s in stems if any(w.startswith(s) for w in words)]
         if hit and (best is None or len(max(hit, key=len)) > best[2]):
             best = (code, name, len(max(hit, key=len)))
     return {"code": best[0], "name": best[1], "_len": best[2]} if best else None
@@ -581,16 +736,24 @@ def match_citydata(text, names):
 def resolve_place(keys, term, names):
     """키워드 → 장소. 서울 주요 장소 이름과 먼저 맞춰 보고, 없으면 네이버 지역 검색으로 찾는다."""
     cd = match_citydata(term, names)
+    partial = None
     # 키워드가 거의 장소 이름 그 자체일 때만 바로 연결 (예: '서울숲' O, '망원 두바이쿠키' X → 지역 검색으로)
     if cd and cd.pop("_len", 0) < len(term.replace(" ", "")) * 0.6:
-        cd = None
+        partial, cd = cd, None
     if cd:
         return {"name": cd["name"], "citydata": cd, "gu": "", "addr": "", "category": "서울 주요 장소", "via": "주요 장소 이름"}
-    items = [it for it in kakao_local_search(keys, term)
-             if (it.get("address_name") or "").startswith("서울")]
+    raw = kakao_local_search(keys, term, size=15)
+    items = [it for it in raw if (it.get("address_name") or "").startswith("서울")]
     if not items:
+        # 지역 검색에 없는 행사·현상 이름(예: '석촌호수 루미나리')도 주요 장소 이름이 들어 있으면 그 장소로 잇는다
+        if partial:
+            return {"name": partial["name"], "citydata": partial, "gu": "", "addr": "", "category": "서울 주요 장소",
+                    "via": "주요 장소 이름(일부)"}
         return None
     it = items[0]
+    # 같은 말을 이름에 가진 서로 다른 서울 가게 수 (많으면 '특정 불가')
+    t0 = _ns(term)
+    amb = len({_ns(x.get("place_name")) for x in items if t0 and t0 in _ns(x.get("place_name"))})
     full = it.get("address_name") or ""
     addr = it.get("road_address_name") or full
     parts = full.split()
@@ -606,6 +769,7 @@ def resolve_place(keys, term, names):
         cd.pop("_len", None)
     return {"name": name, "citydata": cd, "gu": gu, "dong": dong, "addr": addr,
             "category": it.get("category_name", ""), "lat": lat, "lon": lon,
+            "url": it.get("place_url", ""), "amb": amb,
             "via": "카카오 로컬 검색"}
 
 def blog_rise(keys, term):
@@ -628,10 +792,52 @@ def blog_rise(keys, term):
     return {"r3": round(r3, 1), "rp": round(rp, 1), "rise": rise, "saturated": full}
 
 
+def roadside_for(cfg, hist, gu):
+    """구에 짝지을 도로변 측정소. 실제 서울 측정소 목록에 없는 이름이면 쓰지 않는다."""
+    rs = (cfg.get("air_roadside_by_gu") or {}).get(gu or "", "")
+    if not rs or rs in hist.get("station_bad", {}):
+        return ""
+    known = hist.get("seoul_stations")
+    if known and rs not in known:
+        return ""
+    return rs
+
+
+def gu_of(pl, geo):
+    if not pl:
+        return ""
+    return pl.get("gu") or (geo.get(((pl.get("citydata") or {}).get("code")) or "", {}) or {}).get("gu", "")
+
+
+def ensure_poi_geo(keys, hist, limit=40):
+    """서울 주요 장소(POI)마다 구·좌표를 한 번만 찾아 둔다 (카카오). 측정소 짝짓기와 지도 표시에 쓴다."""
+    geo = hist.setdefault("poi_geo", {})
+    if not keys.get("KAKAO_REST_API_KEY"):
+        return 0
+    todo = [(c, n) for c, n in citydata_names(hist) if c not in geo][:limit]
+    for code, name in todo:
+        q = re.split(r"[·(]", name)[0].strip()
+        try:
+            items = [it for it in kakao_local_search(keys, q, size=5) if (it.get("address_name") or "").startswith("서울")]
+        except Exception:
+            continue
+        if not items:
+            geo[code] = {"name": name, "gu": "", "lat": None, "lon": None}
+            continue
+        it = items[0]
+        parts = (it.get("address_name") or "").split()
+        geo[code] = {"name": name, "gu": parts[1] if len(parts) > 1 and parts[1].endswith("구") else "",
+                     "lat": float(it["y"]), "lon": float(it["x"]), "addr": it.get("road_address_name") or it.get("address_name")}
+        time.sleep(0.05)
+    return len(todo)
+
+
 def keyword_discovery(cfg, keys, hist):
     k = cfg.get("keyword_discovery", {})
     kw = hist.setdefault("keywords", {})
     names = citydata_names(hist)
+    ensure_poi_geo(keys, hist)
+    geo = hist.get("poi_geo", {})
     ev_re = re.compile("|".join(map(re.escape, k.get("event_words", []))) or "$^")
     cache = kw.setdefault("resolved", {})
     cands = kw.setdefault("cands", {})
@@ -640,9 +846,12 @@ def keyword_discovery(cfg, keys, hist):
     pinned_kw = {w for g in cfg["keyword_groups"] for w in g["keywords"]}   # 고정 장소 검색어는 발굴 대상에서 뺀다
     pool = [(t, "직접 입력") for t in k.get("seed_keywords", []) if t not in pinned_kw]
     pool += [(r["term"], "제목 급상승") for r in mine_rising_terms(cfg, keys, kw)[:k.get("rising_take", 20)]]
-    pool += [(t["title"], "구글 급상승") for t in hist.get("trends", [])[:15]
-             if t.get("last", "") >= iso(now() - dt.timedelta(hours=12))]
+    # 구글 급상승어는 대부분 뉴스·인물이다. 장소 이름이나 장소 관련 단어가 함께 나온 것만 쓴다.
+    pool += [(t["title"], "구글 급상승") for t in hist.get("trends", [])[:30]
+             if t.get("last", "") >= iso(now() - dt.timedelta(hours=12)) and (t.get("places") or t.get("words"))]
     pool = [(t, src) for t, src in pool if t not in pinned_kw]
+    # 흔한 말은 지역 검색 호출 자체를 하지 않는다
+    pool = [(t, src) for t, src in pool if src == "직접 입력" or (t not in GENERIC and _ns(t) not in GENERIC)]
 
     # ② 장소로 풀기 (7일 캐시) → ③ 점수
     resolved_now, budget = 0, k.get("resolve_max", 30)
@@ -663,6 +872,11 @@ def keyword_discovery(cfg, keys, hist):
         e = cands.setdefault(term, {"term": term, "first": iso(now()), "hits": []})
         e["source"] = src if src == "직접 입력" or not e.get("source") else e["source"]
         e.update(place=pl, last_seen=iso(now()))
+        ok, why, kind = meme_gate(term, pl, e["source"], True, names)
+        e["gate"] = {"ok": ok, "why": why, "kind": kind}
+        if not ok:
+            e["hits"] = []
+            continue                                  # 블로그 호출도 아낀다
         try:
             e.update(blog_rise(keys, term))
         except Exception:
@@ -685,7 +899,10 @@ def keyword_discovery(cfg, keys, hist):
     # ④ 추적 장소로 올리기: 같은 장소로 풀린 키워드는 하나로 묶는다
     by_place = {}
     for e in kw["cands"].values():
-        if e["ev"] or not e["hits"]:
+        if "gate" not in e:          # 이전 버전에서 만든 후보도 같은 기준으로 다시 검사
+            ok, why, kind = meme_gate(e["term"], e.get("place"), e.get("source", ""), True, names)
+            e["gate"] = {"ok": ok, "why": why, "kind": kind}
+        if not e["gate"]["ok"] or e.get("ev") or not e["hits"]:
             continue
         if e["source"] != "직접 입력" and len(e["hits"]) < k.get("min_hits", 2) and e.get("rise", 0) < k.get("instant_rise", 5):
             continue
@@ -706,8 +923,12 @@ def keyword_discovery(cfg, keys, hist):
         pid = "kw_" + hashlib.md5(key.encode()).hexdigest()[:8]
         out.append({"id": pid, "label": pl["name"], "kind": "keyword", "auto": True,
                     "citydata_area": cd["code"] if cd else "", "citydata_name": cd["name"] if cd else "",
-                    "air_urban": pl.get("gu", ""), "air_roadside": "", "gu": pl.get("gu", ""),
-                    "addr": pl.get("addr", ""), "lat": pl.get("lat"), "lon": pl.get("lon"),
+                    "air_urban": gu_of(pl, geo), "gu": gu_of(pl, geo),
+                    "air_roadside": roadside_for(cfg, hist, gu_of(pl, geo)) if k.get("auto_roadside", True) else "",
+                    "addr": pl.get("addr", "") or (geo.get((cd or {}).get("code"), {}) or {}).get("addr", ""),
+                    "lat": pl.get("lat") or (geo.get((cd or {}).get("code"), {}) or {}).get("lat"),
+                    "lon": pl.get("lon") or (geo.get((cd or {}).get("code"), {}) or {}).get("lon"),
+                    "url": pl.get("url", ""), "category": pl.get("category", ""),
                     "keywords": sorted(set(g["terms"]))[:5], "score": g["score"], "pop_confirmed": g["pop"],
                     "seed": g["seed"]})
         if len(out) >= k.get("auto_track_max", 8):
@@ -758,7 +979,9 @@ def merge_daily(old_rows, new_counts, covered_from):
     return sorted([[d, v] for d, v in merged.items()])
 
 
-def naver_search(cid, secret, kind, query, pages):
+def naver_search(cid, secret, kind, query, pages, stop_before=None, datef=None):
+    """stop_before(YYYYMMDD)가 주어지면, 받은 글이 그 날짜보다 오래된 것까지 닿는 순간 다음 쪽을 부르지 않는다
+    (이미 모아 둔 날은 다시 받을 필요가 없음 → 호출 수 절약)."""
     items, total = [], None
     for p in range(pages):
         url = (f"https://naverapihub.apigw.ntruss.com/search/v1/{kind}?display=100&sort=date&start={1 + p * 100}"
@@ -769,6 +992,12 @@ def naver_search(cid, secret, kind, query, pages):
         items += got
         if len(got) < 100:
             break
+        if stop_before and datef:
+            try:
+                if min(datef(it) for it in got) < stop_before:
+                    break
+            except Exception:
+                pass
         time.sleep(0.1)
     return total, items
 
@@ -785,7 +1014,9 @@ def fetch_naver_buzz(cfg, keys, hist):
         for kind, datef in (("blog", lambda it: it.get("postdate", "")[:8]),
                             ("news", lambda it: dt.datetime.strptime(it["pubDate"], "%a, %d %b %Y %H:%M:%S %z")
                                                    .astimezone(KST).strftime("%Y%m%d"))):
-            total, items = naver_search(keys["NAVER_CLIENT_ID"], keys["NAVER_CLIENT_SECRET"], kind, q, pages)
+            have = [d for d, _ in (e.get(kind + "_daily") or [])]
+            stop = have[-2].replace("-", "") if len(have) >= 2 else None      # 마지막으로 완전히 모은 날까지만
+            total, items = naver_search(keys["NAVER_CLIENT_ID"], keys["NAVER_CLIENT_SECRET"], kind, q, pages, stop, datef)
             counts = {}
             for it in items:
                 try:
@@ -797,8 +1028,9 @@ def fetch_naver_buzz(cfg, keys, hist):
                 continue
             # 가져온 개수가 한도에 닿았으면 가장 오래된 날은 일부만 잡힌 것이므로 제외
             days = sorted(counts)
-            covered = days[1] if len(items) >= pages * 100 and len(days) > 1 else days[0]
-            if len(items) >= pages * 100:
+            partial = len(items) >= 100 and len(items) % 100 == 0      # 쪽을 끝까지 받지 않았으면 가장 오래된 날은 일부만
+            covered = days[1] if partial and len(days) > 1 else days[0]
+            if partial:
                 counts.pop(days[0], None)
             e[kind + "_daily"] = merge_daily(e.get(kind + "_daily"), counts, covered)[-120:]
             e[kind + "_total"] = total
@@ -893,63 +1125,77 @@ def fetch_instagram(cfg, keys, hist):
     return len(out)
 
 
+def google_targets(cfg, hist):
+    """구글 지도로 볼 장소: config의 google_places + (자동) 추적 중인 밈 장소 + 추천 상위 장소."""
+    gm = cfg.get("google_maps") or {}
+    out = [dict(q, auto=False) for q in cfg.get("google_places", [])]
+    if not gm.get("auto_places", True):
+        return out
+    seen = {q.get("place") for q in out}
+    auto = []
+    for p in hist.get("kw_places", []):
+        auto.append({"query": f"{p['label']} {p.get('gu', '')}".strip(), "place": p["id"],
+                     "lat": p.get("lat"), "lon": p.get("lon")})
+    for r in (hist.get("recs") or {}).get("items", [])[:gm.get("auto_recs", 5)]:
+        auto.append({"query": f"{r['label']} {r.get('gu', '')}".strip(), "place": r.get("tracked_id") or "rec:" + r["key"],
+                     "lat": r.get("lat"), "lon": r.get("lon")})
+    for q in auto:
+        if q["place"] in seen:
+            continue
+        seen.add(q["place"])
+        out.append(dict(q, auto=True))
+        if sum(1 for x in out if x["auto"]) >= gm.get("max_auto_places", 12):
+            break
+    return out
+
+
 def fetch_google_places(cfg, keys, hist):
-    """Google Places API (New): 장소별 누적 리뷰 수·평점을 하루 한 번 기록 → 하루 새 리뷰 수로 방문 반응 추정."""
+    """Google Places API (New): 장소별 누적 리뷰 수·평점을 하루 한 번 기록 → 하루 새 리뷰 수로 방문 반응 추정.
+    rating·userRatingCount 필드 때문에 Enterprise 요금 단위(월 1,000회 무료)로 계산된다. 장소 ID는 저장해 두고
+    다음부터는 Place Details 한 번만 부른다. 월 호출 수는 api_limits / google_maps.monthly_cap 으로 막는다."""
     key = keys["GOOGLE_MAPS_API_KEY"]
     out = hist.get("gplaces", {})
-    for gp in cfg.get("google_places", []):
+    mask = "id,displayName,rating,userRatingCount,location,googleMapsUri"
+    errs, n = [], 0
+    for gp in google_targets(cfg, hist):
         e = out.setdefault(gp["query"], {"rows": []})
         e["place"] = gp.get("place")
-        mask = "id,displayName,rating,userRatingCount"
-        if not e.get("pid"):
-            j = json.loads(http("https://places.googleapis.com/v1/places:searchText",
-                                data=json.dumps({"textQuery": gp["query"], "languageCode": "ko", "regionCode": "KR"}).encode(),
-                                headers={"Content-Type": "application/json", "X-Goog-Api-Key": key,
-                                         "X-Goog-FieldMask": ",".join("places." + f for f in mask.split(","))}))
-            if not j.get("places"):
-                raise RuntimeError(f"'{gp['query']}' 장소를 찾지 못함")
-            p = j["places"][0]
-        else:
-            p = json.loads(http(f"https://places.googleapis.com/v1/places/{e['pid']}",
-                                headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": mask}))
+        e["auto"] = gp.get("auto", False)
+        try:
+            if not e.get("pid"):
+                body = {"textQuery": gp["query"], "languageCode": "ko", "regionCode": "KR"}
+                if gp.get("lat") and gp.get("lon"):   # 카카오 좌표 주변 300 m로 좁혀 동명이소를 피함
+                    body["locationBias"] = {"circle": {"center": {"latitude": gp["lat"], "longitude": gp["lon"]}, "radius": 300.0}}
+                j = json.loads(http("https://places.googleapis.com/v1/places:searchText", data=json.dumps(body).encode(),
+                                    headers={"Content-Type": "application/json", "X-Goog-Api-Key": key,
+                                             "X-Goog-FieldMask": ",".join("places." + f for f in mask.split(","))}))
+                if not j.get("places"):
+                    raise RuntimeError(f"'{gp['query']}' 장소를 찾지 못함")
+                p = j["places"][0]
+            else:
+                p = json.loads(http(f"https://places.googleapis.com/v1/places/{e['pid']}",
+                                    headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": mask}))
+        except Exception as ex:
+            errs.append(str(ex)[:160])
+            if "호출 한도 보호" in str(ex):
+                break
+            continue
         e["pid"] = p["id"]
         e["name"] = (p.get("displayName") or {}).get("text", gp["query"])
+        loc = p.get("location") or {}
+        e.update(lat=loc.get("latitude"), lon=loc.get("longitude"), uri=p.get("googleMapsUri"),
+                 rating=p.get("rating"), reviews=p.get("userRatingCount"))
         today = now().strftime("%Y-%m-%d")
         e["rows"] = [r for r in e["rows"] if r[0] != today] + [[today, p.get("userRatingCount"), p.get("rating")]]
         e["rows"] = e["rows"][-400:]
-    hist["gplaces"] = out
-    return len(out)
+        n += 1
+    # 30일 넘게 갱신되지 않은 자동 항목은 정리
+    old = (now() - dt.timedelta(days=30)).strftime("%Y-%m-%d")
+    hist["gplaces"] = {k: v for k, v in out.items() if not v.get("auto") or (v.get("rows") and v["rows"][-1][0] >= old)}
+    if errs and not n:
+        raise RuntimeError("; ".join(errs[:3]))
+    return n
 
-
-def run_social(cfg, keys, hist):
-    soc = cfg.get("social", {})
-    jobs = [
-        ("kakao", 23, keys.get("KAKAO_REST_API_KEY"), fetch_kakao, "KAKAO_REST_API_KEY"),
-        ("buzz", soc.get("buzz_refresh_hours", 3), keys.get("NAVER_CLIENT_ID") and keys.get("NAVER_CLIENT_SECRET"),
-         fetch_naver_buzz, "NAVER_CLIENT_ID / NAVER_CLIENT_SECRET (검색 API 추가 필요)"),
-        ("youtube", soc.get("youtube_refresh_hours", 6), keys.get("YOUTUBE_API_KEY"), fetch_youtube, "YOUTUBE_API_KEY"),
-        ("instagram", soc.get("instagram_refresh_hours", 3),
-         keys.get("IG_USER_ID") and keys.get("IG_ACCESS_TOKEN") and cfg.get("instagram_hashtags"),
-         fetch_instagram, "IG_USER_ID / IG_ACCESS_TOKEN"),
-        ("gplaces", 23, keys.get("GOOGLE_MAPS_API_KEY") and cfg.get("google_places"),
-         fetch_google_places, "GOOGLE_MAPS_API_KEY"),
-    ]
-    for src, hours, ok, fn, need in jobs:
-        if not ok:
-            if src in ("instagram", "gplaces", "youtube"):
-                hist["status"].pop(src, None)   # 선택 항목: 키가 없으면 상태 표시도 하지 않음
-            else:
-                set_status(hist, src, False, f"인증키 없음 ({need})")
-            continue
-        if not is_due(hist, src, hours):
-            continue
-        try:
-            n = fn(cfg, keys, hist)
-            set_status(hist, src, True, "", n)
-            log(f"{src} {n}개 갱신")
-        except Exception as e:
-            set_status(hist, src, False, str(e))
-            log(f"{src} 오류: {e}")
 
 # ---------------------------------------------------------------- 저장
 def load_history():
@@ -1014,113 +1260,606 @@ def set_status(hist, src, ok, msg="", n=0):
         st["lastSuccess"] = st["at"]
 
 
-# ---------------------------------------------------------------- 실행
-def run_once(cfg, keys):
-    hist = load_history()
-    d = cfg.get("discovery", {})
+# ---------------------------------------------------------------- 엄격한 갱신 주기 (자료원별 시간표)
+# 예전에는 '마지막 성공 + n시간'으로 판단해서, 한 번 늦으면 그 뒤 일정이 계속 밀렸다(드리프트).
+# 이제는 하루를 자료원마다 정해진 칸(slot)으로 나누고, 지금 칸에서 아직 성공하지 못한 자료원만 부른다.
+# 예) 에어코리아: 60분 칸, 매시 20분 시작 → 10:20~11:19 사이 한 번, 11:20부터 다음 칸.
+# 실패하면 같은 칸 안에서 몇 분 뒤 다시 시도한다. 늦게 실행돼도 다음 칸은 원래 시각에 맞춰 돌아온다.
+SCHED_DEFAULT = {            # (주기 분, 시작 오프셋 분)  — 모두 한국시간 기준
+    "seoul": (10, 0),        # 도시데이터: 5분마다 갱신, 과거 값은 다시 받을 수 없으므로 가장 촘촘하게
+    "recs_live": (10, 0),    # 추천 상위 장소의 실시간 인구·바람
+    "air": (60, 20),         # 에어코리아: 매시 정각 값이 15~20분 뒤 올라옴. 24시간치를 받아 빈칸을 메움
+    "trends": (60, 2),
+    "x": (60, 8),
+    "scan": (180, 5),
+    "kw": (180, 10),
+    "buzz": (180, 15),
+    "instagram": (180, 25),
+    "naver": (360, 30),
+    "youtube": (360, 40),
+    "kakao": (1440, 60),
+    "gplaces": (1440, 1425),  # 하루 한 번 23:45 → 날짜별 누적 리뷰 수가 같은 시각 기준이 됨
+}
+STATUS_IDS = {"air": ("air_urban", "air_road")}
 
-    # 0. 자동 발굴 — 전체 장소 스캔 → 구글 트렌드 → 후보 자동 추적
-    if d.get("enabled", True):
-        if keys.get("SEOUL_API_KEY"):
-            try:
-                run_scan(cfg, keys["SEOUL_API_KEY"], hist)
-            except Exception as e:
-                set_status(hist, "scan", False, str(e))
-                log(f"전체 장소 스캔 오류: {e}")
-        else:
-            set_status(hist, "scan", False, "인증키 없음 (SEOUL_API_KEY)")
-        try:
-            fetch_trends(hist, cfg)
-            set_status(hist, "trends", True, "", len(hist.get("trends", [])))
-        except Exception as e:
-            set_status(hist, "trends", False, str(e))
-            log(f"구글 트렌드 오류: {e}")
-        auto_track(cfg, hist)
 
-    # 0-1. 키워드(밈) 우선 발굴: 밈 키워드 → 장소 → 추적
-    kd = cfg.get("keyword_discovery", {})
-    if kd.get("enabled", True) and keys.get("NAVER_CLIENT_ID") and keys.get("NAVER_CLIENT_SECRET"):
-        if is_due(hist, "kw", kd.get("every_hours", 3)):
-            try:
-                n = keyword_discovery(cfg, keys, hist)
-                set_status(hist, "kw", True, "", n)
-                log(f"키워드 발굴: 추적 장소 {n}곳")
-            except Exception as e:
-                set_status(hist, "kw", False, str(e))
-                log(f"키워드 발굴 오류: {e}")
-    elif kd.get("enabled", True):
-        set_status(hist, "kw", False, "인증키 없음 (NAVER_CLIENT_ID / NAVER_CLIENT_SECRET, 검색 API 추가 필요)")
+def cadence(cfg, src):
+    s = (cfg.get("schedule") or {}).get(src)
+    if isinstance(s, dict) and s.get("every_min"):
+        return int(s["every_min"]), int(s.get("offset_min", 0))
+    legacy = {   # 예전 설정 이름도 그대로 존중
+        "scan": (cfg.get("discovery") or {}).get("scan_every_hours"),
+        "kw": (cfg.get("keyword_discovery") or {}).get("every_hours"),
+        "naver": cfg.get("search_refresh_hours"),
+        "buzz": (cfg.get("social") or {}).get("buzz_refresh_hours"),
+        "youtube": (cfg.get("social") or {}).get("youtube_refresh_hours"),
+        "instagram": (cfg.get("social") or {}).get("instagram_refresh_hours"),
+    }.get(src)
+    every, off = SCHED_DEFAULT.get(src, (60, 0))
+    if legacy and not (cfg.get("schedule") or {}):
+        return int(float(legacy) * 60), off
+    return every, off
 
-    places = all_places(cfg, hist)
-    new = []
 
-    # 서울 도시데이터
-    if keys.get("SEOUL_API_KEY"):
-        errs, n = [], 0
-        for p in places:
-            if not p.get("citydata_area"):
-                continue
-            try:
-                recs = fetch_seoul(keys["SEOUL_API_KEY"], p)
-                new += recs
-                n += len(recs)
-            except Exception as e:
-                errs.append(str(e))
-        set_status(hist, "seoul", n > 0, "; ".join(errs), n)
-        log(f"서울 도시데이터 {n}건" + (f" / 오류: {'; '.join(errs)}" if errs else ""))
+def _kst_min(d):
+    return int(d.timestamp() // 60) + 9 * 60
+
+
+def slot_index(d, every, off):
+    return (_kst_min(d) - off) // every
+
+
+def slot_start(idx, every, off):
+    m = idx * every + off - 9 * 60
+    return dt.datetime.fromtimestamp(m * 60, KST)
+
+
+def _pt(s):
+    return dt.datetime.strptime(s[:16], "%Y-%m-%dT%H:%M").replace(tzinfo=KST)
+
+
+def sched_of(hist, src):
+    return hist.setdefault("sched", {}).setdefault(src, {})
+
+
+def behind(hist, cfg, src):
+    """지금 칸 기준으로 몇 칸 밀렸는지 (0이면 이번 칸은 이미 성공)."""
+    every, off = cadence(cfg, src)
+    s = sched_of(hist, src)
+    last = s.get("ok")
+    if not last:
+        sid = STATUS_IDS.get(src, (src,))[0]
+        last = hist.get("status", {}).get(sid, {}).get("lastSuccess")
+    if not last:
+        return 99
+    return max(0, slot_index(now(), every, off) - slot_index(_pt(last), every, off))
+
+
+def due(hist, cfg, src):
+    if behind(hist, cfg, src) <= 0:
+        return False
+    every, _ = cadence(cfg, src)
+    s = sched_of(hist, src)
+    if s.get("fail_at") and now() - _pt(s["fail_at"]) < dt.timedelta(minutes=min(5, max(1, every // 2))):
+        return False     # 방금 실패했으면 몇 분 쉬었다가 같은 칸 안에서 재시도
+    return True
+
+
+def mark(hist, src, ok):
+    s = sched_of(hist, src)
+    if ok:
+        s["ok"] = iso(now())
+        s["fail_at"], s["fails"] = None, 0
+        keep = iso(now() - dt.timedelta(days=2))
+        s["log"] = [t for t in s.get("log", []) if t >= keep] + [s["ok"]]
     else:
-        set_status(hist, "seoul", False, "인증키 없음 (SEOUL_API_KEY)")
+        s["fail_at"] = iso(now())
+        s["fails"] = s.get("fails", 0) + 1
 
-    # 에어코리아 (측정소별 한 번만 조회)
-    if keys.get("AIRKOREA_API_KEY"):
+
+def compute_sla(hist, cfg):
+    """최근 24시간 정시율 = 성공한 칸 수 ÷ 있어야 할 칸 수."""
+    out, plan = {}, {}
+    day_ago = iso(now() - dt.timedelta(hours=24))
+    for src in SCHED_DEFAULT:
+        every, off = cadence(cfg, src)
+        plan[src] = {"every": every, "offset": off}
+        s = hist.get("sched", {}).get(src)
+        if not s:
+            continue
+        cur = slot_index(now(), every, off)
+        expected = max(1, (24 * 60) // every)
+        hit = len({slot_index(_pt(t), every, off) for t in s.get("log", []) if t >= day_ago}
+                  & set(range(cur - expected + 1, cur + 1)))
+        out[src] = {"every": every, "pct": round(100 * hit / expected), "hit": hit, "expected": expected,
+                    "behind": behind(hist, cfg, src), "fails": s.get("fails", 0),
+                    "next": iso(slot_start(cur + 1, every, off)), "last_ok": s.get("ok")}
+    hist["sla"], hist["schedule"] = out, plan
+
+
+# ---------------------------------------------------------------- 실시간 자료 작업
+def task_seoul(cfg, keys, hist, new):
+    places = [p for p in all_places(cfg, hist) if p.get("citydata_area")]
+
+    def one(p):
+        try:
+            return fetch_seoul(keys["SEOUL_API_KEY"], p), None
+        except Exception as e:
+            return [], str(e)
+    res = pmap(one, places, (cfg.get("schedule") or {}).get("_workers", 4))
+    errs = [e for _, e in res if e]
+    recs = [r for rs, _ in res for r in rs]
+    new += recs
+    set_status(hist, "seoul", bool(recs), "; ".join(errs), len(recs))
+    log(f"서울 도시데이터 {len(recs)}건" + (f" / 오류: {'; '.join(errs)}" if errs else ""))
+    if not recs:
+        raise RuntimeError("; ".join(errs) or "자료 없음")
+    return len(recs)
+
+
+def rec_stations(cfg, hist):
+    """추천 상위 장소의 측정소 (아직 추적하지 않는 곳도 현재값을 보기 위해)."""
+    rc = cfg.get("recommend") or {}
+    if not rc.get("fetch_air", True):
+        return set()
+    geo = hist.get("poi_geo", {})
+    out = set()
+    for r in (hist.get("recs") or {}).get("items", [])[:rc.get("air_top", 4)]:
+        gu = r.get("gu") or (geo.get((r.get("poi") or {}).get("code") or "", {}) or {}).get("gu", "")
+        if gu:
+            out.add(gu)
+            rs = roadside_for(cfg, hist, gu)
+            if rs:
+                out.add(rs)
+    return out
+
+
+def fetch_air_sido(key, sido="서울"):
+    """시도별 실시간 측정정보: 서울 측정소 전체(도시대기·도로변)의 현재 1시간값을 한 번에."""
+    k = key if "%" in key else urllib.parse.quote(key, safe="")
+    url = ("https://apis.data.go.kr/B552584/ArpltnInforInqireSvc/getCtprvnRltmMesureDnsty"
+           f"?serviceKey={k}&returnType=json&numOfRows=200&pageNo=1&sidoName={urllib.parse.quote(sido)}&ver=1.3")
+    txt = http(url, timeout=30, retries=2)
+    if txt.lstrip().startswith("<"):
+        msg = txt.split("<returnAuthMsg>")[-1].split("<")[0] if "returnAuthMsg" in txt else txt[:200]
+        raise RuntimeError(f"시도별 조회: {msg}")
+    j = json.loads(txt)
+    if find(j, "resultCode") not in (None, "00"):
+        raise RuntimeError(f"시도별 조회: {find(j, 'resultMsg')}")
+    out = {}
+    for it in find(j, "items") or []:
+        t = parse_time(it.get("dataTime"))
+        if not t or not it.get("stationName"):
+            continue
+        out[it["stationName"]] = {"t": t, "mang": it.get("mangName", ""), "pm25": num(it.get("pm25Value")),
+                                  "pm10": num(it.get("pm10Value")), "no2": num(it.get("no2Value")),
+                                  "o3": num(it.get("o3Value")), "co": num(it.get("coValue"))}
+    if not out:
+        raise RuntimeError("시도별 조회: 자료 없음")
+    return out
+
+
+def task_air(cfg, keys, hist, new):
+    """한 시간에 한 번: ① 서울 전체 측정소 현재값을 1회 호출로 받고 ② 빠진 시간이 있는 측정소만
+    24시간치로 메운다. 예전(측정소마다 매번 호출)보다 호출 수가 약 10분의 1이라 하루 한도에 여유가 생긴다."""
+    key = keys["AIRKOREA_API_KEY"]
+    places = all_places(cfg, hist)
+    now_tbl = hist.setdefault("station_now", {})
+    bad = hist.setdefault("station_bad", {})
+    week_ago = iso(now() - dt.timedelta(days=7))
+    for s in [s for s, t in bad.items() if t < week_ago]:
+        bad.pop(s)
+    want = {"air_urban": {}, "air_road": {}}
+    for p in places:
         for kind, field in (("air_urban", "air_urban"), ("air_road", "air_roadside")):
-            stations = {}
-            for p in places:
-                s = (p.get(field) or "").strip()
-                if s:
-                    stations.setdefault(s, []).append(p["id"])
-            errs, n = [], 0
-            for s, pids in stations.items():
+            s = (p.get(field) or "").strip()
+            if s:
+                want[kind].setdefault(s, []).append(p["id"])
+    extra = rec_stations(cfg, hist)
+    try:
+        sido = fetch_air_sido(key)
+    except Exception as e:
+        sido = {}
+        log(f"에어코리아 시도별 조회 실패 → 측정소별로 받음: {e}")
+    if sido:
+        hist["seoul_stations"] = {k: v["mang"] for k, v in sido.items()}
+        for s, v in sido.items():
+            if s in extra or any(s in w for w in want.values()):
+                prev = now_tbl.get(s, {}).get("recent", [])
+                rec = [v["t"], v["pm25"], v["no2"]]
+                now_tbl[s] = {"kind": "air_road" if "도로" in v["mang"] else "air_urban", "mang": v["mang"],
+                              "t": v["t"], "pm25": v["pm25"], "pm10": v["pm10"], "no2": v["no2"],
+                              "recent": ([r for r in prev if r[0] != v["t"]] + [rec])[-6:]}
+    last_t = {}
+    for o in hist.get("obs", []):
+        if o.get("src") in ("air_urban", "air_road") and o.get("station"):
+            k2 = (o["src"], o["station"])
+            if o["t"] > last_t.get(k2, ""):
+                last_t[k2] = o["t"]
+    total, backfill = 0, 0
+    max_backfill = (cfg.get("schedule") or {}).get("_air_backfill_max", 8)
+    for kind, stations in want.items():
+        errs, n = [], 0
+        for s, pids in stations.items():
+            cur = sido.get(s)
+            if sido and not cur:
+                errs.append(f"{s}: 서울 측정소 목록에 없음 (이름 확인)")
+                bad[s] = iso(now())
+                continue
+            gap = True
+            if cur:
+                prev = last_t.get((kind, s))
+                gap = not prev or _pt(cur["t"]) - _pt(prev) > dt.timedelta(hours=1)
+                for pid in pids:
+                    new.append({"src": kind, "place": pid, "t": cur["t"], "station": s, "pm25": cur["pm25"],
+                                "pm10": cur["pm10"], "no2": cur["no2"], "o3": cur["o3"], "co": cur["co"]})
+                    n += 1
+            if gap and backfill < max_backfill:      # 빠진 시간이 있을 때만 24시간치로 메움
+                backfill += 1
                 try:
-                    recs = fetch_air(keys["AIRKOREA_API_KEY"], s, pids, kind)
+                    recs = fetch_air(key, s, pids, kind)
                     new += recs
                     n += len(recs)
                 except Exception as e:
-                    errs.append(str(e))
-                time.sleep(0.2)
-            if stations:
-                set_status(hist, kind, n > 0, "; ".join(errs), n)
-                log(f"에어코리아 {kind} {n}건" + (f" / 오류: {'; '.join(errs)}" if errs else ""))
+                    if not cur:
+                        errs.append(str(e))
+        if stations:
+            set_status(hist, kind, n > 0, "; ".join(errs), n)
+            log(f"에어코리아 {kind} {n}건" + (f" / 오류: {'; '.join(errs)}" if errs else ""))
+        total += n
+    for s in extra:
+        if sido and s not in sido:
+            bad[s] = iso(now())
+    if not total and not sido:
+        raise RuntimeError("에어코리아 자료 없음")
+    return total
+
+
+def task_recs_live(cfg, keys, hist):
+    """추천 상위 장소 중 아직 추적하지 않는 곳의 인구·바람을 10분마다 가볍게 다시 읽는다."""
+    rc = cfg.get("recommend") or {}
+    tracked = {p.get("citydata_area") for p in all_places(cfg, hist)}
+    codes = [r["poi"]["code"] for r in (hist.get("recs") or {}).get("items", [])[:rc.get("live_top", 5)]
+             if r.get("poi") and r["poi"]["code"] not in tracked and r["poi"]["code"] not in hist["_scan_live"]]
+    if not codes:
+        return 0
+
+    def one(code):
+        try:
+            return scan_place(keys["SEOUL_API_KEY"], code)
+        except Exception:
+            return None
+    got = [r for r in pmap(one, codes, 4) if r]
+    for r in got:
+        hist["_scan_live"][r["code"]] = r
+    return len(got)
+
+
+# ---------------------------------------------------------------- 밈 추천 (사람이 몰리고, 미세먼지 변화를 잴 수 있는 밈)
+def best_windows(rows):
+    """[(t, pop)] → 평일/주말 각각 인구가 가장 많은 시각(‘중’ 측정)과 낮 시간대 가장 적은 시각(‘전’ 기준 측정)."""
+    import statistics
+    out = {}
+    for we in (True, False):
+        by_h = {}
+        for t, pop in rows:
+            if pop is None:
+                continue
+            h, w = _slot_hw(t)
+            if w == we:
+                by_h.setdefault(h, []).append(pop)
+        med = {h: statistics.median(v) for h, v in by_h.items() if len(v) >= 2}
+        day = {h: v for h, v in med.items() if 8 <= h <= 22}
+        if len(day) < 4:
+            continue
+        peak = max(day, key=day.get)
+        base = min(day, key=day.get)
+        out["we" if we else "wd"] = {"peak_h": peak, "peak_pop": round(day[peak]), "base_h": base,
+                                     "base_pop": round(day[base]), "swing": round(day[peak] / max(1, day[base]), 2),
+                                     "hours": len(day)}
+    return out
+
+
+def balanced_rejects(rows, per_reason=12):
+    """뺀 키워드를 이유별로 고르게 보여 준다 (한 이유가 목록을 다 차지하지 않게)."""
+    by = {}
+    for r in rows:
+        by.setdefault(r["why"], []).append(r)
+    out = []
+    for why, rs in sorted(by.items(), key=lambda kv: -len(kv[1])):
+        out += [dict(r, n_reason=len(rs)) for r in rs[:per_reason]]
+    return out
+
+
+def _clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+
+def recommend_memes(cfg, hist):
+    import math
+    rc = cfg.get("recommend") or {}
+    kw = hist.get("keywords") or {}
+    cands = kw.get("cands") or {}
+    board = {b["code"]: b for b in (hist.get("discovery") or {}).get("board", [])}
+    live = hist.get("_scan_live") or {}
+    scan_rows = load_json("scan.json", {"rows": []}).get("rows", [])
+    by_code = {}
+    for r in scan_rows:
+        by_code.setdefault(r["code"], []).append(r)
+    trend_rel = {t["title"]: bool(t.get("places") or t.get("words")) for t in hist.get("trends", [])}
+    rising_now = {r["term"] for r in kw.get("rising", [])}
+    st_now = hist.get("station_now", {})
+    places = all_places(cfg, hist)
+    name_to_code = {b["name"]: c for c, b in board.items()}
+    tracked = {}
+    for p in places:
+        code = p.get("citydata_area")
+        code = name_to_code.get(code, code)
+        if code:
+            tracked[code] = p["id"]
+        tracked[p["label"]] = p["id"]
+    gpl = {e.get("place"): e for e in (hist.get("gplaces") or {}).values()}
+    fresh = iso(now() - dt.timedelta(days=rc.get("max_age_days", 3)))
+    geo = hist.get("poi_geo", {})
+    # 측정소 현재값: 이번 실행의 값이 없으면 저장된 관측 중 가장 최근 값 (3시간 이내)
+    recent_cut = iso(now() - dt.timedelta(hours=3))
+    st_now = dict(st_now)
+    last_seoul = {}
+    for o in hist.get("obs", []):
+        if o.get("src") in ("air_urban", "air_road") and o.get("station") and o["t"] >= recent_cut:
+            cur = st_now.get(o["station"])
+            if not cur or o["t"] > cur.get("t", ""):
+                st_now[o["station"]] = {"t": o["t"], "pm25": o.get("pm25"), "no2": o.get("no2")}
+        elif o.get("src") == "seoul" and o["t"] >= recent_cut:
+            if o["t"] > last_seoul.get(o["place"], {}).get("t", ""):
+                last_seoul[o["place"]] = o
+
+    groups, rejected = {}, {}
+    for term, e in cands.items():
+        pl = e.get("place") or {}
+        src = e.get("source", "")
+        ok, why, kind = meme_gate(term, pl, src, trend_rel.get(term, src != "구글 급상승"))
+        if not ok:
+            rejected[term] = {"term": term, "why": why, "place": pl.get("name", ""), "source": src,
+                              "cat": (pl.get("category") or "").split(">")[-1].strip()}
+            continue
+        if e.get("ev"):
+            rejected[term] = {"term": term, "why": "주최 측 일정이 있는 행사 (밈이 아니라 대조군)", "place": pl.get("name", ""), "source": src}
+            continue
+        if e.get("last_seen", "") < fresh:
+            continue
+        cd = pl.get("citydata") or {}
+        key = cd.get("code") or pl.get("name") or term
+        g = groups.setdefault(key, {"place": pl, "terms": [], "kinds": set(), "sources": set(), "rise": 0.0,
+                                    "hits": 0, "r3": 0.0, "rp": 0.0, "sat": False, "first": e.get("first", iso(now())),
+                                    "seed": False})
+        if pl.get("lat") and not g["place"].get("lat"):
+            g["place"] = pl
+        rise = 10.0 if e.get("saturated") else float(e.get("rise") or 0)
+        g["terms"].append((term, rise))
+        g["kinds"].add(kind)
+        g["sources"].add(src)
+        g["seed"] |= src == "직접 입력"
+        if rise >= g["rise"]:
+            g["rise"], g["r3"], g["rp"] = rise, e.get("r3", 0), e.get("rp", 0)
+        g["hits"] = max(g["hits"], len(e.get("hits", [])))
+        g["sat"] |= bool(e.get("saturated"))
+        g["first"] = min(g["first"], e.get("first", g["first"]))
+
+    items = []
+    for key, g in groups.items():
+        pl = g["place"]
+        cd = pl.get("citydata") or {}
+        code = cd.get("code")
+        reasons, warns = [], []
+        # ── ① 밈 신호 (35)
+        m = min(1.0, math.log1p(g["rise"]) / math.log1p(10)) * 18 + min(1.0, g["hits"] / 4) * 7
+        terms = [t for t, _ in sorted(g["terms"], key=lambda x: -x[1])]
+        if any(t in rising_now for t in terms):
+            m += 3
+            reasons.append("지금 블로그·유튜브 제목에서 급상승 중")
+        if "구글 급상승" in g["sources"]:
+            m += 3
+            reasons.append("구글 급상승 검색어와 겹침")
+        if len(terms) >= 2:
+            m += 4
+            reasons.append(f"같은 장소를 가리키는 밈 키워드 {len(terms)}개")
+        if g["kinds"] == {"지역명"}:
+            m -= 6
+            warns.append("지역 이름만 늘어남 — 구체적인 밈이 무엇인지 확인 필요")
+        if g["seed"]:
+            m += 2
+        m = _clamp(m, 0, 35)
+        if g["sat"]:
+            stage = "정점 부근"
+        elif g["rise"] >= 3 and g["rp"] < 5:
+            stage = "초기 확산"
+        elif g["rise"] >= 1.5:
+            stage = "확산 중"
+        elif g["rise"] < 1:
+            stage = "식는 중"
+        else:
+            stage = "보합"
+        if stage == "초기 확산":
+            reasons.append("초기 확산 단계 — 정점 ‘전’ 기준선을 지금 잡을 수 있음")
+        elif stage == "식는 중":
+            warns.append("블로그 글이 줄어드는 중 — 정점이 지났을 수 있음")
+
+        # ── ② 인구 측정 가능성 (35)
+        c, crowd = 0.0, {}
+        b = None
+        if code and code in live:
+            lv = live[code]
+            b = {"pop": lv["pop"], "cg": lv.get("cg"), "t": lv["t"], "y": lv.get("y"), "wind": lv.get("_wind"),
+                 "spd": lv.get("_spd"), "pm25": lv.get("_pm25")}
+        elif code:
+            b = board.get(code)
+        if code:
+            c += 12
+            reasons.append(f"서울 실시간 인구 자료가 있는 장소 ({cd.get('name')})")
+        else:
+            warns.append("서울 주요 장소 121곳 밖 — 인구는 현장 계수로만 잴 수 있음")
+        if b:
+            ratio = b.get("ratio")
+            if code in live:
+                med, ymed, n = baseline_of(by_code.get(code, []), b["t"])
+                ratio = round(b["pop"] / med, 2) if med else None
+                dy = round((b.get("y") or 0) - ymed, 1) if ymed is not None else None
+            else:
+                dy = b.get("dy")
+            crowd = {"pop": b.get("pop"), "ratio": ratio, "cg": b.get("cg"), "dy": dy, "t": b.get("t"),
+                     "live": code in live}
+            if ratio:
+                c += _clamp((ratio - 1.0) / 0.6, 0, 1) * 12
+                if ratio >= 1.3:
+                    reasons.append(f"지금 평소보다 {ratio:.1f}배 몰림")
+            if dy and dy > 0:
+                c += _clamp(dy / 8, 0, 1) * 5
+                if dy >= 3:
+                    reasons.append(f"10·20대 비율 +{dy:.0f}%p")
+            c += {3: 3, 4: 6}.get(b.get("cg") or 0, 0)
+        c = _clamp(c, 0, 35)
+
+        # ── ③ 미세먼지 변화 측정 가능성 (20)
+        a, air = 0.0, {}
+        gu = gu_of(pl, geo)
+        urban = gu if gu else ""
+        road = roadside_for(cfg, hist, gu) if gu else ""
+        if urban:
+            a += 5
+        if road:
+            a += 7
+            reasons.append(f"도로변 측정소({road})와 도시대기({urban})를 짝지어 ΔNO₂를 볼 수 있음")
+        else:
+            road = ""
+            warns.append("짝지을 도로변 측정소 없음 — 휴대 센서로 도로 쪽·안쪽을 같이 재세요")
+        tid = tracked.get(code) or tracked.get(pl.get("name", ""))
+        ls = last_seoul.get(tid) or {}
+        wind = (b or {}).get("wind") if b and b.get("wind") is not None else ls.get("wind")
+        spd = (b or {}).get("spd") if b and b.get("spd") is not None else ls.get("spd")
+        if spd is not None:
+            a += 2
+        if wind is not None:
+            if wind < 2:
+                a += 4
+                reasons.append(f"바람 약함({wind:g} m/s) — 지역 배출이 쌓여 차이가 잘 보임")
+            elif wind < 3.5:
+                a += 2
+            else:
+                warns.append(f"바람 강함({wind:g} m/s) — 희석되어 차이가 작게 나올 수 있음")
+        u_now, r_now = st_now.get(urban) or {}, st_now.get(road) or {}
+        bg = u_now.get("pm25") if u_now.get("pm25") is not None else (b or {}).get("pm25")
+        if bg is not None:
+            if bg > 35:
+                a -= 3
+                warns.append(f"도시 전체 PM2.5가 높음({bg:g}) — 장소 효과가 묻힐 수 있음")
+            elif bg <= 15:
+                a += 2
+        dno2 = None
+        if u_now.get("no2") is not None and r_now.get("no2") is not None and u_now.get("t") == r_now.get("t"):
+            dno2 = round((r_now["no2"] - u_now["no2"]) * 1000, 1)
+        air = {"urban": urban, "roadside": road, "pm25_u": u_now.get("pm25"), "no2_u": u_now.get("no2"),
+               "pm25_r": r_now.get("pm25"), "no2_r": r_now.get("no2"), "t": u_now.get("t") or r_now.get("t"),
+               "dno2": dno2, "wind": wind, "pm25_place": (b or {}).get("pm25") if b and b.get("pm25") is not None else ls.get("pm25"),
+               "spd": spd}
+        a = _clamp(a, 0, 20)
+
+        # ── ④ 현장 실험 실용성 (10)
+        rows = [(r["t"], r["pop"]) for r in by_code.get(code, [])] if code else []
+        if tid:
+            rows += [(o["t"], o.get("pop")) for o in hist.get("obs", []) if o.get("src") == "seoul" and o.get("place") == tid]
+        win = best_windows(rows) if rows else {}
+        p = 0
+        if win:
+            p += 4
+        cat = pl.get("category", "")
+        if code or any(x in cat for x in CAT_OUTDOOR):
+            p += 3
+        if tid:
+            p += 3
+            reasons.append("이미 추적 중 — 전·중·후 비교용 기록이 쌓이는 중")
+        total = round(m + c + a + p)
+        gp = gpl.get(tid) or gpl.get("rec:" + key) or {}
+        items.append({
+            "key": key, "label": pl.get("name") or cd.get("name") or key, "terms": terms[:6],
+            "kinds": sorted(g["kinds"]), "sources": sorted(g["sources"]), "category": cat,
+            "gu": gu, "addr": pl.get("addr", "") or (geo.get(code or "", {}) or {}).get("addr", ""),
+            "lat": pl.get("lat") or (geo.get(code or "", {}) or {}).get("lat") or gp.get("lat"),
+            "lon": pl.get("lon") or (geo.get(code or "", {}) or {}).get("lon") or gp.get("lon"),
+            "kakao": pl.get("url", ""), "poi": {"code": code, "name": cd.get("name")} if code else None,
+            "tracked_id": tid, "score": total,
+            "parts": {"meme": round(m), "crowd": round(c), "air": round(a), "prac": p},
+            "stage": stage, "reasons": reasons, "warnings": warns,
+            "meme": {"rise": round(g["rise"], 2), "r3": g["r3"], "rp": g["rp"], "hits": g["hits"], "saturated": g["sat"],
+                     "first": g["first"]},
+            "crowd": crowd, "air": air, "windows": win,
+            "gmaps": {"uri": gp.get("uri"), "rating": gp.get("rating"), "reviews": gp.get("reviews")} if gp else None,
+        })
+    items.sort(key=lambda x: -x["score"])
+    keep = [x for x in items if x["score"] >= rc.get("min_score", 25)][:rc.get("top", 10)]
+    hist["recs"] = {"at": iso(now()), "items": keep, "considered": len(cands), "grouped": len(items),
+                    "rejected": balanced_rejects(rejected.values()),
+                    "weights": {"meme": 35, "crowd": 35, "air": 20, "prac": 10}}
+    return len(keep)
+
+
+# ---------------------------------------------------------------- 실행
+def run_once(cfg, keys, budget_sec=None):
+    """실시간 자료(도시데이터·에어코리아)를 먼저, 느린 자료는 많이 밀린 순서로.
+    한 번 실행 시간이 예산(기본 240초)을 넘으면 남은 느린 작업은 다음 실행으로 넘겨, 다음 10분 칸의
+    실시간 수집이 밀리지 않게 한다."""
+    t0 = time.monotonic()
+    budget = budget_sec if budget_sec is not None else (cfg.get("schedule") or {}).get("_run_budget_sec", 240)
+    hist = load_history()
+    quota_init(hist, cfg)
+    hist["_scan_live"] = {}
+    d = cfg.get("discovery", {})
+    kd = cfg.get("keyword_discovery", {})
+    soc_need = {"youtube", "instagram", "gplaces", "x"}       # 선택 항목: 키 없으면 상태 표시 안 함
+    new, ran, deferred = [], [], []
+
+    def attempt(src, fn, status=True):
+        """status=False: 작업이 스스로 상태를 남긴다(부분 실패 메시지 보존). 그러지 못하고 죽었을 때만 대신 남김."""
+        sids = STATUS_IDS.get(src, (src,))
+        before = {sid: dict(hist["status"].get(sid, {})) for sid in sids}
+        try:
+            n = fn()
+            if status:
+                set_status(hist, src, True, "", n or 0)
+            mark(hist, src, True)
+            ran.append(src)
+            log(f"{src} 완료 ({n})")
+        except Exception as e:
+            for sid in sids:
+                if src == "recs_live":
+                    break
+                if status or hist["status"].get(sid, {}) == before[sid]:
+                    set_status(hist, sid, False, str(e))
+            mark(hist, src, False)
+            log(f"{src} 오류: {e}")
+
+    # ── 1) 실시간: 예산과 무관하게 항상 먼저
+    if keys.get("SEOUL_API_KEY"):
+        if due(hist, cfg, "seoul"):
+            attempt("seoul", lambda: task_seoul(cfg, keys, hist, new), status=False)
+    else:
+        set_status(hist, "seoul", False, "인증키 없음 (SEOUL_API_KEY)")
+    if keys.get("AIRKOREA_API_KEY"):
+        if due(hist, cfg, "air"):
+            attempt("air", lambda: task_air(cfg, keys, hist, new), status=False)
     else:
         set_status(hist, "air_urban", False, "인증키 없음 (AIRKOREA_API_KEY)")
         set_status(hist, "air_road", False, "인증키 없음 (AIRKOREA_API_KEY)")
 
-    # 네이버 데이터랩 (일 단위 자료라 설정 간격마다만 갱신)
-    if keys.get("NAVER_CLIENT_ID") and keys.get("NAVER_CLIENT_SECRET"):
-        last = hist["status"].get("naver", {}).get("lastSuccess")
-        tracked = set(hist.get("search", {}).keys())
-        due = (not last or not hist.get("search") or {g["name"] for g in all_groups(cfg, hist)} - tracked
-               or now() - dt.datetime.strptime(last, "%Y-%m-%dT%H:%M").replace(tzinfo=KST)
-               >= dt.timedelta(hours=cfg.get("search_refresh_hours", 6)))
-        if due:
-            try:
-                hist["search"] = fetch_naver(keys["NAVER_CLIENT_ID"], keys["NAVER_CLIENT_SECRET"],
-                                             all_groups(cfg, hist), cfg.get("search_days", 90))
-                set_status(hist, "naver", True, "", len(hist["search"]))
-                log(f"네이버 검색 추이 {len(hist['search'])}개 그룹 갱신")
-            except Exception as e:
-                set_status(hist, "naver", False, str(e))
-                log(f"네이버 오류: {e}")
-        else:
-            log("네이버 검색 추이: 갱신 주기 전이라 건너뜀")
-    else:
-        set_status(hist, "naver", False, "인증키 없음 (NAVER_CLIENT_ID / NAVER_CLIENT_SECRET)")
+    # ── 2) 느린 자료: (이름, 켜짐 여부, 필요한 키 안내, 함수)
+    naver_ok = keys.get("NAVER_CLIENT_ID") and keys.get("NAVER_CLIENT_SECRET")
 
-    # 검색어 기반 게시물: 네이버 블로그·뉴스, 유튜브, 인스타그램, 구글 지도 리뷰
-    run_social(cfg, keys, hist)
+    def naver_job():
+        hist["search"] = fetch_naver(keys["NAVER_CLIENT_ID"], keys["NAVER_CLIENT_SECRET"],
+                                     all_groups(cfg, hist), cfg.get("search_days", 90))
+        return len(hist["search"])
 
-    # X (선택)
-    if keys.get("X_BEARER_TOKEN") and cfg.get("x_queries"):
+    def x_job():
         errs = []
         for q in cfg["x_queries"]:
             try:
@@ -1131,20 +1870,87 @@ def run_once(cfg, keys):
                                         "rows": sorted([[k, v] for k, v in old.items()])[-24 * cfg.get("keep_days", 60):]}
             except Exception as e:
                 errs.append(f"{q['name']}: {e}")
-        set_status(hist, "x", not errs, "; ".join(errs), len(cfg["x_queries"]))
-    else:
-        hist["status"].pop("x", None)
+        if errs:
+            raise RuntimeError("; ".join(errs))
+        return len(cfg["x_queries"])
+
+    def scan_job():
+        n = run_scan(cfg, keys["SEOUL_API_KEY"], hist)
+        auto_track(cfg, hist)
+        return n
+
+    def trends_job():
+        fetch_trends(hist, cfg)
+        return len(hist.get("trends", []))
+
+    slow = [
+        ("trends", d.get("enabled", True), True, "", trends_job),
+        ("scan", d.get("enabled", True), keys.get("SEOUL_API_KEY"), "인증키 없음 (SEOUL_API_KEY)", scan_job),
+        ("kw", kd.get("enabled", True), naver_ok, "인증키 없음 (NAVER_CLIENT_ID / NAVER_CLIENT_SECRET, 검색 API 추가 필요)",
+         lambda: keyword_discovery(cfg, keys, hist)),
+        ("naver", True, naver_ok, "인증키 없음 (NAVER_CLIENT_ID / NAVER_CLIENT_SECRET)", naver_job),
+        ("buzz", True, naver_ok, "인증키 없음 (NAVER_CLIENT_ID / NAVER_CLIENT_SECRET (검색 API 추가 필요))",
+         lambda: fetch_naver_buzz(cfg, keys, hist)),
+        ("youtube", True, keys.get("YOUTUBE_API_KEY"), "", lambda: fetch_youtube(cfg, keys, hist)),
+        ("instagram", True, keys.get("IG_USER_ID") and keys.get("IG_ACCESS_TOKEN") and cfg.get("instagram_hashtags"), "",
+         lambda: fetch_instagram(cfg, keys, hist)),
+        ("gplaces", True, keys.get("GOOGLE_MAPS_API_KEY"), "", lambda: fetch_google_places(cfg, keys, hist)),
+        ("kakao", bool(cfg.get("kakao_store", False)), keys.get("KAKAO_REST_API_KEY"), "인증키 없음 (KAKAO_REST_API_KEY)", lambda: fetch_kakao(cfg, keys, hist)),
+        ("x", True, keys.get("X_BEARER_TOKEN") and cfg.get("x_queries"), "", x_job),
+    ]
+    order = {s[0]: i for i, s in enumerate(slow)}
+    todo = []
+    for src, enabled, ok, need, fn in slow:
+        if not enabled:
+            continue
+        if not ok:
+            if src in soc_need:
+                hist["status"].pop(src, None)
+            else:
+                set_status(hist, src, False, need)
+            continue
+        extra = src == "naver" and ({g["name"] for g in all_groups(cfg, hist)} - set(hist.get("search", {})))
+        if due(hist, cfg, src) or extra:
+            todo.append((src, fn))
+    todo.sort(key=lambda x: (-min(behind(hist, cfg, x[0]), 6), order[x[0]]))   # 많이 밀린 것부터
+    for src, fn in todo:
+        if time.monotonic() - t0 > budget:
+            deferred.append(src)
+            continue
+        attempt(src, fn)
+    if deferred:
+        log(f"실행 시간 예산 {budget}초를 넘어 다음 실행으로 미룸: {', '.join(deferred)}")
+
+    # ── 3) 추천: 상위 장소 실시간 인구 갱신 → 순위 다시 계산 (API 호출 없음, 매번)
+    if keys.get("SEOUL_API_KEY") and due(hist, cfg, "recs_live"):
+        attempt("recs_live", lambda: task_recs_live(cfg, keys, hist), status=False)
+    try:
+        n = recommend_memes(cfg, hist)
+        set_status(hist, "recs", True, "", n)
+    except Exception as e:
+        set_status(hist, "recs", False, str(e))
+        log(f"추천 계산 오류: {e}")
+        traceback.print_exc()
 
     hist["obs"] = compact(hist["obs"] + new, cfg.get("keep_days", 60), cfg.get("full_resolution_days", 7))
-    hist["places"] = places
+    places = all_places(cfg, hist)
     for p in places:
         p.setdefault("kind", "pinned")
+    hist["places"] = places
     hist["keyword_groups"] = all_groups(cfg, hist)
     hist["generatedAt"] = iso(now())
-    hist["runs"] = (hist.get("runs", []) + [{"at": hist["generatedAt"], "new": len(new)}])[-50:]
+    hist["runs"] = (hist.get("runs", []) + [{"at": hist["generatedAt"], "new": len(new),
+                                             "sec": round(time.monotonic() - t0), "ran": ran, "deferred": deferred}])[-200:]
+    compute_sla(hist, cfg)
+    gm = cfg.get("google_maps") or {}
+    hist["maps"] = {"embed_key": gm.get("embed_key", ""), "on": bool(keys.get("GOOGLE_MAPS_API_KEY"))}
     hist["schema"] = SCHEMA
+    hist.pop("_scan_live", None)
     save(hist)
-    log(f"저장 완료: 누적 관측 {len(hist['obs'])}건 → data/data.js")
+    # 바뀐 것이 있을 때만 사이트를 다시 게시하도록 표시 (GitHub Pages 빌드·전송량 절약)
+    with open(os.path.join(DATA_DIR, ".changed"), "w") as f:
+        f.write("1" if (new or ran) else "0")
+    log(f"저장 완료 ({round(time.monotonic() - t0)}초): 누적 관측 {len(hist['obs'])}건, 실행 {ran}, 미룸 {deferred}")
 
 
 def check(cfg, keys):
@@ -1161,8 +1967,11 @@ def check(cfg, keys):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--loop", type=int, default=0, help="초 단위 반복 간격 (예: 600)")
+    ap.add_argument("--loop", type=int, default=0, help="초 단위 반복 간격 (예: 600). 시계 정각 칸에 맞춰 돈다")
+    ap.add_argument("--until", type=int, default=0, help="--loop와 함께: 이 분이 지나면 끝냄 (GitHub 실행용)")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--plan", action="store_true", help="자료원별 갱신 시간표 출력")
+    ap.add_argument("--recs-only", action="store_true", help="API 호출 없이 추천만 다시 계산 (시험용)")
     ap.add_argument("--config", default=os.path.join(HERE, "config.json"))
     a = ap.parse_args()
     with open(a.config, encoding="utf-8") as f:
@@ -1171,6 +1980,22 @@ def main():
     if a.check:
         check(cfg, keys)
         return
+    if a.plan:
+        for src in SCHED_DEFAULT:
+            every, off = cadence(cfg, src)
+            nxt = slot_start(slot_index(now(), every, off) + 1, every, off)
+            print(f"  {src:10s} {every:5d}분마다 (오프셋 {off}분)  다음 칸 {nxt.strftime('%m-%d %H:%M')}")
+        return
+    if a.recs_only:
+        hist = load_history()
+        hist["_scan_live"] = {}
+        n = recommend_memes(cfg, hist)
+        hist.pop("_scan_live", None)
+        compute_sla(hist, cfg)
+        save(hist)
+        log(f"추천 {n}개 다시 계산")
+        return
+    start = time.monotonic()
     while True:
         try:
             run_once(cfg, keys)
@@ -1178,8 +2003,14 @@ def main():
             traceback.print_exc()
         if not a.loop:
             break
-        log(f"{a.loop}초 후 다시 수집합니다 (종료: Ctrl+C)")
-        time.sleep(a.loop)
+        # 실행 시간만큼 밀리지 않도록 다음 정각 칸(예: 10:10, 10:20 …)의 1분 뒤에 맞춰 깬다
+        t = time.time()
+        wake = (int(t) // a.loop + 1) * a.loop + 60
+        if a.until and (time.monotonic() - start) + (wake - t) > a.until * 60:
+            log("정해진 실행 시간이 끝나 종료합니다")
+            break
+        log(f"{dt.datetime.fromtimestamp(wake, KST).strftime('%H:%M')}에 다시 수집합니다 (종료: Ctrl+C)")
+        time.sleep(max(1, wake - t))
 
 
 if __name__ == "__main__":

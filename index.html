@@ -153,6 +153,41 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
   .controls{margin-left:0}
 }
 @media (prefers-reduced-motion:reduce){.track i{transition:none}}
+
+/* 밈 추천 */
+.recwrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:14px;align-items:start}
+.reclist{display:flex;flex-direction:column;gap:10px}
+.rec{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:52px 1fr;gap:4px 14px}
+.rec.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.rec .rank{grid-row:1/span 3;text-align:center}
+.rec .rank b{display:block;font-size:26px;line-height:1.1;font-weight:700}
+.rec .rank span{font-size:11.5px;color:var(--muted)}
+.rec h4{margin:0;font-size:16px;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.rec h4 small{font-weight:400;color:var(--muted);font-size:12.5px}
+.rec .terms{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.rec .terms span{background:color-mix(in srgb,var(--a10) 12%,var(--surface));color:var(--ink);border-radius:10px;padding:0 8px;font-size:12.5px}
+.sbar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--soft);margin:8px 0 2px;max-width:420px}
+.sbar i{display:block;height:100%}
+.slegend{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;color:var(--muted)}
+.slegend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.kv{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;margin-top:8px}
+.kv span{color:var(--muted)} .kv b{font-weight:600;color:var(--ink)}
+.why{margin:8px 0 0;padding:0;list-style:none;font-size:13px}
+.why li{margin:2px 0;padding-left:18px;position:relative;max-width:80ch}
+.why li::before{position:absolute;left:0;font-weight:700}
+.why li.ok::before{content:"✓";color:var(--fresh)} .why li.warn::before{content:"!";color:var(--late);left:4px}
+.plan{background:var(--bg);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px}
+.plan b{font-weight:600}
+.recact{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:13px}
+.recact a{color:var(--accent)}
+.mapcard{position:sticky;top:12px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px}
+.mapcard h3{margin:0 0 6px;font-size:14.5px}
+.mapcard iframe{width:100%;height:300px;border:0;border-radius:8px;background:var(--soft)}
+.minimap{width:100%;height:auto;display:block;background:var(--bg);border-radius:8px}
+.minimap text{font-size:10px;fill:var(--muted)}
+.minimap .dot{cursor:pointer}
+.stagetag{color:var(--accent)}
+@media (max-width:900px){.recwrap{grid-template-columns:1fr}.mapcard{position:static}}
 </style>
 </head>
 <body>
@@ -195,6 +230,7 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
 
   <nav class="tabs" role="tablist" id="tabs">
     <button role="tab" data-tab="linked" aria-selected="true">연결 보기</button>
+    <button role="tab" data-tab="recs" aria-selected="false">밈 추천</button>
     <button role="tab" data-tab="discover" aria-selected="false">자동 발굴</button>
     <button role="tab" data-tab="ages" aria-selected="false">연령별 반응</button>
     <button role="tab" data-tab="hours" aria-selected="false">시간 × 장소</button>
@@ -210,6 +246,26 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
       <button class="btn" id="exportLinked">이 장소의 연결 자료 CSV 저장</button>
       <span class="small">서울 도시데이터 관측 시각마다 같은 시각의 측정소 값과 그날 검색 지수를 한 줄로 묶습니다.</span>
     </div>
+  </section>
+
+  <!-- 밈 추천 -->
+  <section class="view" id="v-recs">
+    <p class="note" id="recSummary" style="margin-top:0"></p>
+    <div class="pipeline">
+      <span><b>밈 신호 35점</b>블로그 글 급상승 배율, 반복 포착, 제목·구글 급상승과 겹침, 같은 장소를 가리키는 키워드 수</span>
+      <span><b>인구 측정 35점</b>서울 실시간 인구 자료가 있는 장소인가, 지금 평소보다 몰렸나, 10·20대 비율, 혼잡도</span>
+      <span><b>미세먼지 측정 20점</b>도시대기·도로변 측정소 짝, 도로 속도 자료, 지금 바람(약할수록 차이가 잘 보임), 배경 농도</span>
+      <span><b>현장 실용성 10점</b>사람이 가장 많은 시각을 알 수 있나, 야외에서 셀 수 있나, 이미 추적 중인가</span>
+    </div>
+    <div class="recwrap">
+      <div class="reclist" id="recList"></div>
+      <aside class="mapcard" id="recMap"></aside>
+    </div>
+    <details class="how" style="margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px">
+      <summary>추천에서 뺀 키워드와 이유 (<span id="rejCount">0</span>)</summary>
+      <p class="note">흔한 말이 엉뚱한 가게로 풀리거나(예: ‘운전’→운전학원), 뉴스·인물 급상승어가 같은 이름의 가게로 풀린 경우를 걸러 냅니다. 이 기준은 추적 장소 선정에도 똑같이 쓰입니다.</p>
+      <div class="tablewrap"><table id="rejTable"></table></div>
+    </details>
   </section>
 
   <!-- 자동 발굴 -->
@@ -315,6 +371,8 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
         <input type="text" id="srcInput" style="width:100%" spellcheck="false">
         <p class="small" style="margin:10px 0 4px">실시간 사이트 주소 (GitHub Pages, 예: https://아이디.github.io/meme-pulse/)</p>
         <input type="url" id="liveInput" style="width:100%" spellcheck="false" placeholder="https://">
+        <p class="small" style="margin:10px 0 4px">구글 지도 화면용 키 (선택, Maps Embed API 브라우저 키 · 웹사이트 제한 필수)</p>
+        <input type="text" id="embedInput" style="width:100%" spellcheck="false" placeholder="AIza… (비워 두면 지도 링크만 표시)">
         <div class="row" style="margin-top:10px">
           <label class="small" for="intervalSel">화면 새로고침 간격</label>
           <select id="intervalSel"><option value="1">1분</option><option value="2">2분</option><option value="5">5분</option><option value="10">10분</option><option value="30">30분</option></select>
@@ -508,7 +566,7 @@ const HELP = {
   trends:{level:"기본", time:"설정 없음", steps:["인증키가 필요 없습니다. 수집기가 한 번이라도 돌면 채워집니다."]},
 };
 const HINTS = [
-  [/인증키 없음/, "아직 이 자료의 키가 등록되지 않았습니다. 아래 순서대로 등록하면 다음 수집(최대 30분 뒤)부터 들어옵니다."],
+  [/인증키 없음/, "아직 이 자료의 키가 등록되지 않았습니다. 아래 순서대로 등록하면 다음 수집(다음 10분 칸)부터 들어옵니다."],
   [/INFO-100|유효하지 않/, "키가 틀렸습니다. 앞뒤 공백 없이 다시 복사해 Secret을 고쳐 주세요."],
   [/INFO-200|CITYDATA 없음|해당하는 데이터가 없/, "장소 이름이 공식 목록과 다릅니다. config.json의 citydata_area를 ‘주요 장소 목록’ 엑셀과 똑같이 고쳐 주세요."],
   [/SERVICE_KEY_IS_NOT_REGISTERED/, "신청 직후에는 1~2시간 뒤부터 작동합니다. 계속되면 Decoding 키로 바꿔 넣어 보세요."],
@@ -537,7 +595,7 @@ function whereAmI(){
 const FLOW_HTML = `<div class="flow">
     <div class="fbox"><b>공식 API</b><span>서울시 · 에어코리아 · 네이버 · 유튜브 · 구글 · 인스타그램</span></div>
     <div class="farrow">인증키로 접속</div>
-    <div class="fbox main"><b>수집기</b><span>GitHub 서버에서 30분마다 스스로 실행. 내 컴퓨터가 꺼져 있어도 돕니다.</span></div>
+    <div class="fbox main"><b>수집기</b><span>GitHub 서버에서 10분 칸마다 실행. 자료원마다 정해진 시간표(도시데이터 10분, 대기질 1시간 …)를 지킵니다.</span></div>
     <div class="farrow">정리·저장</div>
     <div class="fbox"><b>자료 파일</b><span>중복 정리, 60일 보관</span></div>
     <div class="farrow">읽기만 함</div>
@@ -583,8 +641,10 @@ function renderLanes(){
     const last = latestFor(s.id);
     const info = st[s.id] || {};
     let cls="none", label="자료 없음", pct=0;
+    const skey = s.id.startsWith("air_") ? "air" : s.id;
+    const plan = DATA.schedule?.[skey], sla = DATA.sla?.[skey];
     if (last!=null){
-      const age = (nowRef()-last)/60e3, cyc = s.cycle;
+      const age = (nowRef()-last)/60e3, cyc = plan && s.unit!=="day" ? plan.every + ({seoul:20, air:45}[skey] ?? 10) : s.cycle;
       pct = Math.min(100, age/(cyc*3)*100);
       if (age <= cyc) { cls="fresh"; label="최신"; fresh++; }
       else if (age <= cyc*3) { cls="late"; label="지연"; }
@@ -596,7 +656,8 @@ function renderLanes(){
     const obsText = last==null ? "–" : (s.unit==="day" ? `${fmtD(last)}까지` : s.unit==="fetch" ? `${fmtDT(last)} 수집` : fmtDT(last));
     const agoText = last==null ? "" : (DATA.demo ? "" : ` · ${s.unit==="day"?"수집 "+(info.lastSuccess?ago(ms(info.lastSuccess)):"–"):ago(last)}`);
     const helpBtn = (trouble && DATA && !DATA.demo) || open ? `<button class="linkbtn small" data-help="${s.id}" aria-expanded="${open}">${open?"닫기":(last==null?"연결 방법":"해결 방법")}</button>` : "";
-    div.innerHTML = `<div class="nm">${esc(s.name)}<small>${esc(s.sub)}</small></div>
+    const subTxt = plan ? `${plan.every>=1440?"하루 1회":plan.every>=60?(plan.every/60)+"시간마다":plan.every+"분마다"}${sla&&!DATA.demo?` · 24시간 정시율 ${sla.pct}%`:""}` : s.sub;
+    div.innerHTML = `<div class="nm">${esc(s.name)}<small>${esc(subTxt)}</small></div>
       <div class="tm">${obsText}<span class="small">${agoText}</span></div>
       <div class="track" title="막대가 짧을수록 최신입니다. 눈금은 정상 갱신 주기입니다."><i style="width:${last==null?100:Math.max(3,pct)}%;background:var(--${cls==="none"?"stale":cls})"></i><b style="left:33.3%"></b></div>
       <div class="st ${cls}">${label}<br>${helpBtn}</div>
@@ -633,8 +694,8 @@ function renderBanners(){
   else ll.classList.add("hidden");
   if (DATA && DATA.demo) b.innerHTML += `<div class="banner demo"><b>가상 데모 자료입니다.</b> 화면 사용법을 익히기 위해 만든 숫자이며 실제 관측이 아닙니다. 그래프에 커서를 올려 보고, 탭을 하나씩 눌러 보세요. <button class="btn" id="leaveDemo" style="margin-left:6px">데모 끄고 연결 시작</button></div>`;
   if (DATA && !DATA.demo && loadError) b.innerHTML += `<div class="banner err"><b>새 자료를 읽지 못했습니다.</b> ${esc(loadError)} 화면에는 ${fmtDT(loadedAt)}에 읽은 자료가 남아 있습니다.</div>`;
-  if (DATA && !DATA.demo && DATA.generatedAt && Date.now()-ms(DATA.generatedAt) > 3*H && isFinite(nextLoad))
-    b.innerHTML += `<div class="banner err"><b>수집기가 ${ago(ms(DATA.generatedAt)).replace(" 전","")} 넘게 실행되지 않았습니다.</b> GitHub 저장소의 Actions 탭에서 마지막 실행을 확인하세요. 저장소에 60일 동안 변경이 없으면 GitHub가 예약 실행을 멈추며, 그럴 때는 Actions 탭에서 ‘Enable workflow’를 누르면 다시 시작합니다.</div>`;
+  if (DATA && !DATA.demo && DATA.generatedAt && Date.now()-ms(DATA.generatedAt) > 1*H && isFinite(nextLoad))
+    b.innerHTML += `<div class="banner err"><b>수집기가 ${ago(ms(DATA.generatedAt)).replace(" 전","")} 넘게 실행되지 않았습니다.</b> GitHub 예약 실행은 자주 늦습니다. README 10장의 ‘바깥에서 깨우기’(cron-job.org)를 켜면 거의 끊기지 않습니다. Actions 탭에서 마지막 실행도 확인하세요. 저장소에 60일 동안 변경이 없으면 GitHub가 예약 실행을 멈추며, 그럴 때는 Actions 탭에서 ‘Enable workflow’를 누르면 다시 시작합니다.</div>`;
   const lv = $("#leaveDemo"); if (lv) lv.onclick = ()=>{ DATA=null; IDX=null; loadData(true); renderAll(); };
   const start = $("#startArea");
   if (!DATA){
@@ -645,7 +706,7 @@ function renderBanners(){
       <p class="small" style="margin:0 0 14px">${esc(note)} 아래에서 할 일을 고르세요.</p>
       <div class="choices">
         <button class="choice" id="demoStart"><b>먼저 둘러보기</b><span>가상 데모 자료로 모든 화면을 바로 봅니다. 1분.</span></button>
-        <button class="choice" id="setupStart" aria-expanded="false"><b>자동 수집 연결하기</b><span>한 번 설정하면 컴퓨터를 꺼 둬도 30분마다 모입니다. 30분 + 키 승인 대기.</span></button>
+        <button class="choice" id="setupStart" aria-expanded="false"><b>자동 수집 연결하기</b><span>한 번 설정하면 컴퓨터를 꺼 둬도 10분마다 모입니다. 30분 + 키 승인 대기.</span></button>
         <button class="choice" id="fileStart"><b>받아 둔 자료 열기</b><span>수집기가 만든 history.json이나 data.js를 엽니다.</span></button>
       </div>
       ${cfg.live? `<p class="small" style="margin:12px 0 0">이미 연결했다면 <a href="${esc(cfg.live)}" target="_blank" rel="noopener">내 Meme Pulse 사이트</a>에서 실시간 자료를 보세요.</p>`:""}
@@ -687,7 +748,7 @@ function renderSelectors(){
   if (!groups.includes(ui.group)) ui.group = groups.find(g=>DATA.search[g].place===ui.place) || groups[0] || null;
   for (const g of groups) gs.add(new Option(g, g, false, g===ui.group));
   $("#hourVar").value = ui.hourVar; $("#dayType").value = ui.dayType;
-  $("#srcInput").value = cfg.src; $("#intervalSel").value = String(cfg.interval); $("#liveInput").value = cfg.live||"";
+  $("#srcInput").value = cfg.src; $("#intervalSel").value = String(cfg.interval); $("#liveInput").value = cfg.live||""; $("#embedInput").value = cfg.embedKey||"";
 }
 
 /* ============================== SVG 그래프 (시간축 공유 + 커서 동기화) ============================== */
@@ -898,6 +959,111 @@ function deltaSeries(place){
     out.push({m:r._m, t:r.t, dpm: r.pm25!=null&&b.pm25!=null? r.pm25-b.pm25 : null, dno2: r.no2!=null&&b.no2!=null? (r.no2-b.no2)*1000 : null});
   }
   return out;
+}
+
+/* ============================== 밈 추천 ============================== */
+const PART_COLORS = {meme:"--a10", crowd:"--a40", air:"--air2", prac:"--a30"};
+const PART_NAMES = {meme:"밈 신호", crowd:"인구 측정", air:"미세먼지 측정", prac:"현장 실용성"};
+const CG_NAME = ["","여유","보통","약간 붐빔","붐빔"];
+function embedKey(){ return (cfg.embedKey||"").trim() || (DATA?.maps?.embed_key||"").trim(); }
+function gmapsUrl(r){
+  if (r.gmaps?.uri) return r.gmaps.uri;
+  const q = r.lat&&r.lon ? `${r.lat},${r.lon}` : `${r.label} ${r.gu||""} 서울`;
+  return "https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q);
+}
+function kakaoUrl(r){ return r.kakao || "https://map.kakao.com/link/search/"+encodeURIComponent(`${r.label} ${r.gu||""}`.trim()); }
+function nextWeekend(){
+  const d = kd(Date.now()); const w = d.getUTCDay(); const add = w===6?0:w===0?0:6-w;
+  const sat = new Date(Date.now()+KST+add*DAY); return `${sat.getUTCMonth()+1}/${sat.getUTCDate()}`;
+}
+function planText(r){
+  const w = r.windows||{}; const out=[];
+  const seg = (k,label)=>{ const x=w[k]; if(!x) return;
+    out.push(`<b>${label}</b> 가장 붐빔 ${x.peak_h}시 (약 ${fx(x.peak_pop,0)}명) · 가장 한산 ${x.base_h}시 (약 ${fx(x.base_pop,0)}명) · 차이 ${fx(x.swing,1)}배`); };
+  seg("we","주말"); seg("wd","평일");
+  const we = w.we||w.wd;
+  const st = [r.air?.urban?`도시대기 <b>${esc(r.air.urban)}</b>`:"", r.air?.roadside?`도로변 <b>${esc(r.air.roadside)}</b>`:""].filter(Boolean).join(" · ");
+  let how = we ? `현장 측정 제안 — <b>전</b>: ${w.we?"이번 주말("+nextWeekend()+") ":""}${we.base_h}시 · <b>중</b>: ${we.peak_h}시 · <b>후</b>: 다음 주 같은 시각. 슬롯마다 5분 보행자·차량 수와 휴대 센서 PM2.5를 3회 반복.`
+                : `사람이 가장 많은 시각은 아직 계산할 자료가 부족합니다(서울 주요 장소 스캔이 쌓이면 나타남). 현장에서 1시간 간격으로 세어 보세요.`;
+  return `<div class="plan">${out.join("<br>")}${out.length?"<br>":""}${how}${st?`<br>공공 측정소: ${st} → ‘연결 보기’의 ΔNO₂·ΔPM2.5가 1차 지표`:""}</div>`;
+}
+function renderRecs(){
+  const R = DATA?.recs; const list=$("#recList"), map=$("#recMap");
+  if (!R || !(R.items||[]).length){
+    $("#recSummary").innerHTML = !R ? "아직 추천 자료가 없습니다. 새 수집기(collect.py)가 한 번 돌면 채워집니다. 밈 키워드 발굴(네이버 키)과 서울 주요 장소 스캔(서울 키)이 있어야 점수가 의미 있습니다."
+      : `마지막 계산 ${fmtDT(ms(R.at))}. 기준을 통과한 밈 장소가 아직 없습니다. 키워드 ${R.considered}개를 검사했습니다.`;
+    list.innerHTML=""; map.innerHTML=""; $("#rejTable").innerHTML=""; $("#rejCount").textContent=String((R?.rejected||[]).length); return;
+  }
+  const items = R.items;
+  if (!items.find(r=>r.key===ui.rec)) ui.rec = items[0].key;
+  $("#recSummary").innerHTML = `마지막 계산 <b>${fmtDT(ms(R.at))}</b> (10분마다 다시 계산, 상위 장소의 인구·바람은 실시간). 밈 키워드 ${R.considered}개 → 기준 통과 장소 ${R.grouped}곳 → 상위 <b>${items.length}</b>곳. `+
+    `점수는 ‘사람이 몰리고, 그 변화와 미세먼지 변화를 공공 자료로 잴 수 있는가’를 봅니다. 밈이 얼마나 유명한지만 보는 것이 아닙니다.`;
+  list.innerHTML = items.map((r,i)=>{
+    const P=r.parts||{}; const c=r.crowd||{}; const a=r.air||{};
+    const bar = Object.keys(PART_NAMES).map(k=>`<i style="width:${P[k]||0}%;background:var(${PART_COLORS[k]})" title="${PART_NAMES[k]} ${P[k]||0}점"></i>`).join("");
+    const kv = [
+      c.pop!=null?`<span>인구</span> <b>${fx(c.pop,0)}명</b>${c.live?" <small class='small'>(실시간)</small>":""}`:"",
+      c.ratio!=null?`<span>평소 대비</span> <b style="${c.ratio>=1.3?"color:var(--a10)":""}">${fx(c.ratio,2)}배</b>`:"",
+      c.cg?`<span>혼잡</span> <b>${CG_NAME[c.cg]}</b>`:"",
+      a.wind!=null?`<span>바람</span> <b>${fx(a.wind,1)} m/s</b>`:"",
+      a.pm25_u!=null?`<span>PM2.5 ${esc(a.urban)}</span> <b>${fx(a.pm25_u,0)}</b>`:(a.pm25_place!=null?`<span>PM2.5</span> <b>${fx(a.pm25_place,0)}</b>`:""),
+      a.dno2!=null?`<span>ΔNO₂ 지금</span> <b>${a.dno2>=0?"+":""}${fx(a.dno2,1)} ppb</b>`:"",
+      r.meme?.rise!=null?`<span>블로그</span> <b>${r.meme.saturated?"매우 활발":fx(r.meme.rise,1)+"배"}</b>`:"",
+      r.gmaps?.reviews!=null?`<span>구글 리뷰</span> <b>${fx(r.gmaps.reviews,0)}</b>${r.gmaps.rating?` (★${fx(r.gmaps.rating,1)})`:""}`:"",
+    ].filter(Boolean).map(x=>`<div>${x}</div>`).join("");
+    return `<article class="rec ${r.key===ui.rec?"sel":""}" data-rec="${esc(r.key)}">
+      <div class="rank"><b>${r.score}</b><span>${i+1}위</span></div>
+      <div>
+        <h4>${esc(r.label)} <small>${esc([r.gu, r.poi?.name&&r.poi.name!==r.label?"주요 장소: "+r.poi.name:"", (r.category||"").split(">").pop().trim()].filter(Boolean).join(" · "))}</small>
+          <span class="tag stagetag">${esc(r.stage)}</span>${r.tracked_id?`<span class="tag track">추적 중</span>`:""}</h4>
+        <div class="terms">${(r.terms||[]).map(t=>`<span>${esc(t)}</span>`).join("")}</div>
+        <div class="sbar" aria-label="점수 구성">${bar}</div>
+        <div class="slegend">${Object.keys(PART_NAMES).map(k=>`<span><i style="background:var(${PART_COLORS[k]})"></i>${PART_NAMES[k]} ${P[k]||0}</span>`).join("")}</div>
+        <div class="kv">${kv}</div>
+        <ul class="why">${(r.reasons||[]).map(x=>`<li class="ok">${esc(x)}</li>`).join("")}${(r.warnings||[]).map(x=>`<li class="warn">${esc(x)}</li>`).join("")}</ul>
+        ${planText(r)}
+        <div class="recact">
+          ${r.tracked_id?`<button class="linkbtn" data-go="${esc(r.tracked_id)}">연결 보기 (그래프)</button>`:""}
+          <a href="${esc(gmapsUrl(r))}" target="_blank" rel="noopener">구글 지도</a>
+          <a href="${esc(kakaoUrl(r))}" target="_blank" rel="noopener">카카오맵</a>
+          <button class="linkbtn" data-recsel="${esc(r.key)}">오른쪽 지도에 표시</button>
+        </div>
+      </div></article>`;
+  }).join("");
+  list.querySelectorAll("[data-go]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); ui.place=b.dataset.go; ui.group=null; CURSOR=null; saveUi(); selectTab("linked"); });
+  list.querySelectorAll("[data-recsel]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); ui.rec=b.dataset.recsel; saveUi(); renderRecs(); });
+  renderRecMap(items);
+  const rej = R.rejected||[];
+  $("#rejCount").textContent = String(rej.length);
+  $("#rejTable").innerHTML = `<thead><tr><th>키워드</th><th>찾은 경로</th><th>풀린 장소</th><th>뺀 이유</th></tr></thead><tbody>`+
+    (rej.length? rej.map(x=>`<tr><td>${esc(x.term)}</td><td>${esc(x.source)}</td><td style="text-align:left">${esc(x.place)}${x.cat?`<br><span class="small">${esc(x.cat)}</span>`:""}</td><td style="text-align:left;white-space:normal">${esc(x.why)}</td></tr>`).join("")
+     : `<tr><td colspan="4" class="empty">없음</td></tr>`)+"</tbody>";
+}
+function renderRecMap(items){
+  const map=$("#recMap"); const r = items.find(x=>x.key===ui.rec)||items[0]; const k=embedKey();
+  let body;
+  if (k){
+    const q = r.lat&&r.lon ? `${r.lat},${r.lon}` : `${r.label} ${r.gu||""} 서울`;
+    body = `<iframe title="${esc(r.label)} 지도" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+      src="https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(k)}&q=${encodeURIComponent(q)}&language=ko&region=KR&zoom=15"></iframe>`;
+  } else {
+    // 키 없이: 서울 범위 위에 추천 장소를 점으로 (좌표가 있는 것만)
+    const W=320,Hh=250, la0=37.43, la1=37.70, lo0=126.76, lo1=127.19;
+    const X=lo=>8+(lo-lo0)/(lo1-lo0)*(W-16), Y=la=>8+(la1-la)/(la1-la0)*(Hh-16);
+    const pts = items.map((x,i)=>({x,i})).filter(o=>o.x.lat&&o.x.lon);
+    const river = [[126.77,37.585],[126.85,37.57],[126.9,37.545],[126.95,37.525],[126.99,37.515],[127.03,37.525],[127.07,37.53],[127.1,37.515],[127.13,37.535],[127.18,37.55]];
+    body = `<svg class="minimap" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="추천 장소 위치">
+      <rect x="4" y="4" width="${W-8}" height="${Hh-8}" rx="8" fill="none" stroke="var(--line)"/>
+      <polyline points="${river.map(([lo,la])=>X(lo).toFixed(1)+","+Y(la).toFixed(1)).join(" ")}" fill="none" stroke="var(--air2)" stroke-width="5" opacity=".35" stroke-linecap="round"/>
+      <text x="${X(126.9)}" y="${Y(37.535)+16}">한강</text>
+      ${pts.map(({x,i})=>`<g class="dot" data-recsel="${esc(x.key)}"><circle cx="${X(x.lon).toFixed(1)}" cy="${Y(x.lat).toFixed(1)}" r="${x.key===r.key?9:7}" fill="var(${x.key===r.key?"--a10":"--accent"})" stroke="var(--surface)" stroke-width="2"/>
+        <text x="${X(x.lon).toFixed(1)}" y="${(Y(x.lat)+3.5).toFixed(1)}" text-anchor="middle" style="fill:var(--surface);font-weight:700">${i+1}</text></g>`).join("")}
+    </svg>${pts.length<items.length?`<p class="small" style="margin:6px 0 0">좌표가 아직 없는 장소 ${items.length-pts.length}곳은 점이 없습니다(카카오 키로 자동 채움).</p>`:""}`;
+  }
+  map.innerHTML = `<h3>${esc(r.label)}</h3>${body}
+    <div class="recact"><a href="${esc(gmapsUrl(r))}" target="_blank" rel="noopener">구글 지도에서 열기</a><a href="${esc(kakaoUrl(r))}" target="_blank" rel="noopener">카카오맵</a></div>
+    ${k?"":`<p class="small" style="margin:8px 0 0">구글 지도를 여기 바로 띄우려면 ‘설정’ 탭에 지도 화면용 키를 넣으세요 (Maps Embed API, 무료, 웹사이트 제한 필수). 키가 없어도 위 링크는 작동합니다.</p>`}`;
+  map.querySelectorAll("[data-recsel]").forEach(g=>g.onclick=()=>{ ui.rec=g.dataset.recsel; saveUi(); renderRecs(); document.querySelector(`[data-rec="${CSS.escape(ui.rec)}"]`)?.scrollIntoView({behavior:"smooth",block:"nearest"}); });
 }
 
 /* ============================== 자동 발굴 ============================== */
@@ -1134,13 +1300,13 @@ function renderField(){
 /* ============================== 설정 탭 ============================== */
 function renderSettings(){
   const st = DATA?.status||{};
-  $("#statusTable").innerHTML = `<thead><tr><th>자료원</th><th>상태</th><th>마지막 시도</th><th>마지막 성공</th><th>건수</th><th>메시지</th></tr></thead><tbody>`+
-    SOURCES.filter(s=>st[s.id]).map(s=>{ const i=st[s.id]; return `<tr><td>${s.name}</td><td style="color:var(--${i.ok?"fresh":"stale"})">${i.ok?"정상":"실패"}</td><td>${i.at?fmtDT(ms(i.at)):"–"}</td><td>${i.lastSuccess?fmtDT(ms(i.lastSuccess)):"–"}</td><td>${i.n??"–"}</td><td style="text-align:left;white-space:normal">${esc(i.msg||"")}</td></tr>`; }).join("")+
+  $("#statusTable").innerHTML = `<thead><tr><th>자료원</th><th>상태</th><th>마지막 시도</th><th>마지막 성공</th><th>건수</th><th>24시간 정시율</th><th>다음 칸</th><th>메시지</th></tr></thead><tbody>`+
+    SOURCES.filter(s=>st[s.id]).map(s=>{ const i=st[s.id]; return `<tr><td>${s.name}</td><td style="color:var(--${i.ok?"fresh":"stale"})">${i.ok?"정상":"실패"}</td><td>${i.at?fmtDT(ms(i.at)):"–"}</td><td>${i.lastSuccess?fmtDT(ms(i.lastSuccess)):"–"}</td><td>${i.n??"–"}</td><td>${(()=>{const q=DATA.sla?.[s.id.startsWith("air_")?"air":s.id];return q?q.pct+"% ("+q.hit+"/"+q.expected+")":"–";})()}</td><td>${(()=>{const q=DATA.sla?.[s.id.startsWith("air_")?"air":s.id];return q?.next?fmtDT(ms(q.next)):"–";})()}</td><td style="text-align:left;white-space:normal">${esc(i.msg||"")}</td></tr>`; }).join("")+
     (Object.keys(st).length?"":`<tr><td colspan="6" class="empty">수집기 상태 기록이 없습니다.</td></tr>`)+"</tbody>";
   $("#placeTable").innerHTML = `<thead><tr><th>id</th><th>이름</th><th>도시데이터 장소명</th><th>도시대기 측정소</th><th>도로변 측정소</th><th>연결된 검색어 그룹</th></tr></thead><tbody>`+
     (DATA?.places||[]).map(p=>`<tr><td>${esc(p.id)}</td><td>${esc(p.label)}</td><td>${esc(p.citydata_area)}</td><td>${esc(p.air_urban||"–")}</td><td>${esc(p.air_roadside||"–")}</td><td>${esc(Object.entries(DATA.search||{}).filter(([k,g])=>g.place===p.id).map(([k])=>k).join(", ")||"–")}</td></tr>`).join("")+"</tbody>";
   const runs = (DATA?.runs||[]).slice(-8).reverse();
-  $("#runLog").innerHTML = runs.length ? runs.map(r=>`${fmtDT(ms(r.at))} 실행, 새 관측 ${r.new}건`).join("<br>") : "기록이 없습니다.";
+  $("#runLog").innerHTML = runs.length ? runs.map(r=>`${fmtDT(ms(r.at))} 실행, 새 관측 ${r.new}건${r.sec!=null?`, ${r.sec}초`:""}${r.ran?.length?` · ${r.ran.join(", ")}`:""}${r.deferred?.length?` · <span style="color:var(--late)">미룸 ${r.deferred.join(", ")}</span>`:""}`).join("<br>") : "기록이 없습니다.";
 }
 
 /* ============================== 내보내기 ============================== */
@@ -1244,7 +1410,16 @@ function startDemo(){
     rising:[{term:"망원 노을 피크닉",count:14,base:2,rise:4.7},{term:"성수 굿즈 오픈런",count:11,base:1,rise:5.5},{term:"연남 디저트 웨이팅",count:9,base:2,rise:3},{term:"가상 유행어",count:17,base:3,rise:4.3},{term:"가상 뮤직 페스티벌",count:12,base:0,rise:12},{term:"가상 신제품",count:8,base:2,rise:2.7}]};
   setData({schema:1,demo:true,generatedAt:nowIso,places,obs,search,x:{},discovery,trends,buzz,youtube,instagram,gplaces,keywords,
     status:{seoul:{ok:true,at:nowIso,lastSuccess:nowIso,n:3,msg:""},air_urban:{ok:true,at:nowIso,lastSuccess:nowIso,n:6,msg:""},air_road:{ok:true,at:nowIso,lastSuccess:nowIso,n:6,msg:""},scan:{ok:true,at:nowIso,lastSuccess:nowIso,n:121,msg:""},kw:{ok:true,at:nowIso,lastSuccess:nowIso,n:2,msg:""},buzz:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},youtube:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},instagram:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},gplaces:{ok:true,at:nowIso,lastSuccess:nowIso,n:1,msg:""},trends:{ok:true,at:nowIso,lastSuccess:nowIso,n:2,msg:""},naver:{ok:true,at:nowIso,lastSuccess:nowIso,n:3,msg:""}},
-    runs:[{at:nowIso,new:0}]}, true);
+    runs:[{at:nowIso,new:0}],
+    schedule:{seoul:{every:10},air:{every:60},trends:{every:60},scan:{every:180},kw:{every:180},buzz:{every:180},instagram:{every:180},naver:{every:360},youtube:{every:360},gplaces:{every:1440},kakao:{every:1440}},
+    recs:{at:nowIso,considered:6,grouped:3,rejected:[{term:"가상 흔한말",source:"제목 급상승",place:"가상 가게",why:"흔한 말"}],items:[
+      {key:"POI090",label:"망원한강공원",terms:["망원 노을 피크닉","한강 노을 명소"],kinds:["장소 밈"],sources:["제목 급상승","구글 급상승"],category:"서울 주요 장소",gu:"마포구",lat:37.555,lon:126.895,poi:{code:"POI090",name:"망원한강공원"},tracked_id:"auto_POI090",score:78,parts:{meme:29,crowd:27,air:14,prac:8},stage:"초기 확산",
+       reasons:["가상 예시: 지금 평소보다 2.3배 몰림","도로변 측정소(신촌로)와 도시대기(마포구)를 짝지어 ΔNO₂를 볼 수 있음","바람 약함(1.2 m/s) — 지역 배출이 쌓여 차이가 잘 보임"],warnings:[],
+       meme:{rise:4.6,hits:3},crowd:{pop:18400,ratio:2.3,cg:3,dy:11.2,live:true},air:{urban:"마포구",roadside:"신촌로",pm25_u:18,dno2:9.5,wind:1.2},windows:{we:{peak_h:17,peak_pop:21000,base_h:10,base_pop:6000,swing:3.5}}},
+      {key:"POI002",label:"성수카페거리",terms:["성수 굿즈 오픈런","성수 팝업"],kinds:["장소 밈"],sources:["직접 입력"],category:"서울 주요 장소",gu:"성동구",lat:37.5447,lon:127.056,poi:{code:"POI002",name:"성수카페거리"},tracked_id:"seongsu",score:66,parts:{meme:24,crowd:20,air:14,prac:8},stage:"확산 중",
+       reasons:["가상 예시: 10·20대 비율 +6%p"],warnings:["가상 예시: 바람 강함(4.1 m/s) — 희석되어 차이가 작게 나올 수 있음"],meme:{rise:1.8,hits:4},crowd:{pop:15800,ratio:1.3,cg:3},air:{urban:"성동구",roadside:"강변북로",wind:4.1},windows:{}},
+      {key:"가상 디저트 연남점",label:"가상 디저트 연남점",terms:["연남 디저트 웨이팅"],kinds:["가게 밈"],sources:["제목 급상승"],category:"디저트",gu:"마포구",score:41,parts:{meme:22,crowd:0,air:12,prac:7},stage:"초기 확산",
+       reasons:[],warnings:["서울 주요 장소 121곳 밖 — 인구는 현장 계수로만 잴 수 있음"],meme:{rise:3.2,hits:1},crowd:{},air:{urban:"마포구",roadside:"신촌로"},windows:{}}]}}, true);
 }
 
 /* ============================== 전체 그리기 · 이벤트 ============================== */
@@ -1256,6 +1431,7 @@ function renderAll(){
   if (t==="linked") renderLinked(); else PANELS.length=0;
   if (t==="ages") renderAges();
   if (t==="discover") renderDiscover();
+  if (t==="recs") renderRecs();
   if (t==="hours") renderHours();
   if (t==="field") renderField();
   if (t==="settings") { renderSettings(); $("#srcInput").value=cfg.src; $("#intervalSel").value=String(cfg.interval); }
@@ -1274,7 +1450,7 @@ $("#hourVar").onchange = e=>{ ui.hourVar=e.target.value; saveUi(); renderHours()
 $("#trendPlaceOnly").onchange = ()=>renderDiscover();
 $("#dayType").onchange = e=>{ ui.dayType=e.target.value; saveUi(); renderHours(); };
 $("#refreshBtn").onclick = ()=>{ if (DATA&&DATA.demo) return; loadData(true); };
-$("#saveSettings").onclick = ()=>{ cfg.live=$("#liveInput").value.trim(); cfg.src=$("#srcInput").value.trim()||DEFAULT_SRC; cfg.interval=+$("#intervalSel").value; store.set("cfg",cfg); DATA=null; loadData(true); renderAll(); };
+$("#saveSettings").onclick = ()=>{ cfg.embedKey=$("#embedInput").value.trim(); cfg.live=$("#liveInput").value.trim(); cfg.src=$("#srcInput").value.trim()||DEFAULT_SRC; cfg.interval=+$("#intervalSel").value; store.set("cfg",cfg); DATA=null; loadData(true); renderAll(); };
 $("#openFileBtn").onclick = ()=>$("#dataFile").click();
 $("#demoBtn").onclick = startDemo;
 $("#dataFile").onchange = async e=>{

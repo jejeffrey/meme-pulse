@@ -1838,8 +1838,11 @@ def ensure_station_geo(keys, hist, names):
     """측정소 좌표: ① 에어코리아 측정소정보 API(별도 활용신청, 무료) ② 없으면 카카오로 구청·측정소 이름 위치를 대신 씀."""
     pm = hist.setdefault("pm_map", {})
     geo = pm.setdefault("stations", {})
-    if not pm.get("geo_at") or pm["geo_at"] < iso(now() - dt.timedelta(days=30)):
-        pm["geo_at"] = iso(now())
+    # 에어코리아 좌표를 받은 뒤에는 30일마다, 아직 못 받았으면(활용신청 직후 등) 2시간마다 다시 시도
+    from_airkorea = any(v.get("src") == "에어코리아" for v in geo.values())
+    stale = (not from_airkorea or not pm.get("geo_at") or pm["geo_at"] < iso(now() - dt.timedelta(days=30)))
+    if stale and (not pm.get("geo_try") or pm["geo_try"] < iso(now() - dt.timedelta(hours=2))):
+        pm["geo_try"] = iso(now())
         try:
             k = keys["AIRKOREA_API_KEY"]
             k = k if "%" in k else urllib.parse.quote(k, safe="")
@@ -1854,6 +1857,9 @@ def ensure_station_geo(keys, hist, names):
                     lat, lon = (a, b) if 33 < a < 39 else (b, a)
                     geo[it.get("stationName")] = {"lat": lat, "lon": lon, "src": "에어코리아",
                                                   "mang": it.get("mangName", ""), "addr": it.get("addr", "")}
+                    pm["geo_at"] = iso(now())          # 성공했을 때만 30일 동안 다시 묻지 않음
+            else:
+                log("측정소 좌표: 에어코리아 측정소정보 API 아직 사용 불가 (활용신청·승인 확인) → 2시간 뒤 재시도")
         except Exception as e:
             log(f"측정소 좌표(에어코리아 측정소정보) 실패 → 카카오로 대신: {e}")
     if keys.get("KAKAO_REST_API_KEY"):

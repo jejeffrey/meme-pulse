@@ -220,6 +220,8 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
 .seg button{background:var(--surface);border:0;padding:4px 12px;cursor:pointer;font-size:13px;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}.seg button[aria-pressed=true]{background:var(--accent);color:var(--surface);font-weight:600}
 .leaflet-container{font:inherit}
+.pmmap .leaflet-tile-pane{filter:grayscale(1) contrast(.9) brightness(1.05)}
+.pmmap.dark .leaflet-tile-pane{filter:grayscale(1) invert(1) brightness(.85) contrast(.9)}
 @media (max-width:900px){.pmgrid3{grid-template-columns:1fr}}
 </style>
 </head>
@@ -1121,8 +1123,10 @@ function pmMap(id, sync){
   if (PMMAPS[id] && PMMAPS[id].el===el) return PMMAPS[id];
   const dark = getComputedStyle(document.documentElement).colorScheme.includes("dark") || document.documentElement.dataset.theme==="dark";
   const m=L.map(el,{scrollWheelZoom:false, zoomSnap:0.25, attributionControl:true});
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark?"dark_all":"light_all"}/{z}/{x}/{y}{r}.png`,
-    {maxZoom:17, subdomains:"abcd", attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(m);
+  // 지도 배경: OpenStreetMap 기본 지도 (키 불필요). 미세먼지 색이 잘 보이도록 회색조로 표시(.pmmap CSS)
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {maxZoom:18, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> 기여자'}).addTo(m);
+  el.classList.toggle("dark", !!dark);
   const [s,n,w,e]=DATA.pm_map.grid.bbox; m.fitBounds([[s,w],[n,e]]);
   const hover=document.createElement("div"); hover.className="pmhover"; el.appendChild(hover);
   const rec={el,m,hover,layers:[],fn:null,unit:"",sync};

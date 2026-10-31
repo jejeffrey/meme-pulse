@@ -1510,6 +1510,11 @@ def task_air(cfg, keys, hist, new):
     for s in extra:
         if sido and s not in sido:
             bad[s] = iso(now())
+    try:
+        pm_forecast_cycle(cfg, keys, hist, sido)
+    except Exception as e:
+        log(f"미세먼지 분포 예측 오류: {e}")
+        traceback.print_exc()
     if not total and not sido:
         raise RuntimeError("에어코리아 자료 없음")
     return total
@@ -1801,6 +1806,263 @@ def recommend_memes(cfg, hist):
                     "rejected": balanced_rejects(rejected.values()),
                     "weights": {"meme": 35, "crowd": 35, "air": 20, "prac": 10}}
     return len(keep)
+
+
+# ---------------------------------------------------------------- 미세먼지 분포: 밈 기반 예측 → 실제와 비교
+# 방법 (연구 설명용):
+#   ① 기준선(지속 예측): 지금(t) 서울 측정소 PM2.5가 한 시간 뒤(t+h)에도 그대로라고 본다.
+#   ② 밈 효과: 추천된 밈 장소마다 '증가량 = α × 인구 초과(평소 대비−1) × 밈 신호(0~1) × 1/(1+풍속)'을
+#      그 장소를 중심으로 가우스 모양(σ km)으로 퍼뜨려 기준선에 더한다.
+#   ③ t+h의 실제 측정값이 들어오면 측정소 위치에서 오차·상관·정확도를, 격자에서 고농도 구역 일치도(IoU)를 계산한다.
+#   ④ 기준선만 쓴 예측과 비교한 개선율(skill)로 '밈 정보가 실제로 도움이 되었는가'를 따로 잰다.
+#   ⑤ α는 지난 예측들의 잔차(도시 전체 공통 변화를 뺀 값)로 최소제곱 보정한다.
+import math as _math
+
+PM_BBOX = (37.42, 37.71, 126.76, 127.19)   # 남, 북, 서, 동
+
+
+def km_between(a_lat, a_lon, b_lat, b_lon):
+    dy = (a_lat - b_lat) * 111.0
+    dx = (a_lon - b_lon) * 111.0 * _math.cos(_math.radians((a_lat + b_lat) / 2))
+    return _math.hypot(dx, dy)
+
+
+def pm_cfg(cfg):
+    d = {"enabled": True, "horizon_h": 1, "alpha": 6.0, "sigma_km": 1.0, "calibrate": True,
+         "grid": [48, 40], "hotspot_q": 0.75, "keep": 96, "use_roadside": True, "mask_km": 6.0}
+    d.update({k: v for k, v in (cfg.get("pm_map") or {}).items() if not k.startswith("_")})
+    return d
+
+
+def ensure_station_geo(keys, hist, names):
+    """측정소 좌표: ① 에어코리아 측정소정보 API(별도 활용신청, 무료) ② 없으면 카카오로 구청·측정소 이름 위치를 대신 씀."""
+    pm = hist.setdefault("pm_map", {})
+    geo = pm.setdefault("stations", {})
+    if not pm.get("geo_at") or pm["geo_at"] < iso(now() - dt.timedelta(days=30)):
+        pm["geo_at"] = iso(now())
+        try:
+            k = keys["AIRKOREA_API_KEY"]
+            k = k if "%" in k else urllib.parse.quote(k, safe="")
+            txt = http("https://apis.data.go.kr/B552584/MsrstnInfoInqireSvc/getMsrstnList"
+                       f"?serviceKey={k}&returnType=json&numOfRows=200&pageNo=1&addr={urllib.parse.quote('서울')}&ver=1.1",
+                       timeout=30, retries=1)
+            if not txt.lstrip().startswith("<"):
+                for it in find(json.loads(txt), "items") or []:
+                    a, b = num(it.get("dmX")), num(it.get("dmY"))
+                    if a is None or b is None:
+                        continue
+                    lat, lon = (a, b) if 33 < a < 39 else (b, a)
+                    geo[it.get("stationName")] = {"lat": lat, "lon": lon, "src": "에어코리아",
+                                                  "mang": it.get("mangName", ""), "addr": it.get("addr", "")}
+        except Exception as e:
+            log(f"측정소 좌표(에어코리아 측정소정보) 실패 → 카카오로 대신: {e}")
+    if keys.get("KAKAO_REST_API_KEY"):
+        for name in [n for n in names if n not in geo][:40]:
+            qs = [f"서울 {name}청"] if name.endswith("구") else [f"{name} 도로변대기측정소", f"서울 {name}"]
+            for q in qs:
+                try:
+                    items = [it for it in kakao_local_search(keys, q, size=3) if (it.get("address_name") or "").startswith("서울")]
+                except Exception:
+                    items = []
+                if items:
+                    geo[name] = {"lat": float(items[0]["y"]), "lon": float(items[0]["x"]), "src": "카카오(근사)",
+                                 "addr": items[0].get("address_name", "")}
+                    break
+    return geo
+
+
+def idw(points, lat, lon, power=2.0):
+    """points: [(lat, lon, value)] — 역거리가중 보간 (측정소 바로 위면 그 값)."""
+    num_, den = 0.0, 0.0
+    for a, b, v in points:
+        d = km_between(lat, lon, a, b)
+        if d < 0.05:
+            return v
+        w = 1.0 / d ** power
+        num_ += w * v
+        den += w
+    return num_ / den if den else None
+
+
+def meme_sources(cfg, hist):
+    """추천 밈 장소 → 단위 증가량 u(α 곱하기 전)."""
+    out = []
+    for r in (hist.get("recs") or {}).get("items", []):
+        if not (r.get("lat") and r.get("lon")):
+            continue
+        c = r.get("crowd") or {}
+        ratio = c.get("ratio")
+        crowd = _clamp((ratio - 1.0), 0, 2) if ratio else _clamp(((c.get("cg") or 2) - 2) / 2, 0, 1)
+        meme = _clamp(((r.get("parts") or {}).get("meme") or 0) / 35, 0, 1)
+        wind = (r.get("air") or {}).get("wind")
+        wind = 2.0 if wind is None else wind
+        u = crowd * meme / (1 + wind)
+        out.append({"key": r["key"], "label": r["label"], "lat": r["lat"], "lon": r["lon"], "u": round(u, 4),
+                    "ratio": ratio, "meme": round(meme, 2), "wind": wind, "score": r.get("score")})
+    return out
+
+
+def kernel_sum(sources, lat, lon, sigma):
+    s = 0.0
+    for src in sources:
+        d = km_between(lat, lon, src["lat"], src["lon"])
+        s += src["u"] * _math.exp(-(d * d) / (2 * sigma * sigma))
+    return s
+
+
+def pm_grid(stations_vals, geo, P, sources=None, alpha=0.0, sigma=1.0):
+    """격자 값 목록 [[lat, lon, v]] (측정소에서 mask_km보다 먼 칸은 None)."""
+    pts = [(geo[s]["lat"], geo[s]["lon"], v) for s, v in stations_vals.items() if s in geo and v is not None]
+    if len(pts) < 3:
+        return []
+    s_lat, n_lat, w_lon, e_lon = PM_BBOX
+    ny, nx = P["grid"][1], P["grid"][0]
+    out = []
+    for j in range(ny):
+        lat = s_lat + (n_lat - s_lat) * (j + 0.5) / ny
+        for i in range(nx):
+            lon = w_lon + (e_lon - w_lon) * (i + 0.5) / nx
+            near = min(km_between(lat, lon, a, b) for a, b, _ in pts)
+            if near > P["mask_km"]:
+                out.append(None)
+                continue
+            v = idw(pts, lat, lon)
+            if sources:
+                v += alpha * kernel_sum(sources, lat, lon, sigma)
+            out.append(v)
+    return out
+
+
+def _rank(xs):
+    order = sorted(range(len(xs)), key=lambda i: xs[i])
+    r = [0.0] * len(xs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and xs[order[j + 1]] == xs[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            r[order[k]] = (i + j) / 2 + 1
+        i = j + 1
+    return r
+
+
+def _pearson(a, b):
+    n = len(a)
+    if n < 3:
+        return None
+    ma, mb = sum(a) / n, sum(b) / n
+    sa = _math.sqrt(sum((x - ma) ** 2 for x in a))
+    sb = _math.sqrt(sum((y - mb) ** 2 for y in b))
+    if sa == 0 or sb == 0:
+        return None
+    return sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (sa * sb)
+
+
+def _quantile(xs, q):
+    s = sorted(xs)
+    if not s:
+        return None
+    k = (len(s) - 1) * q
+    f = int(k)
+    return s[f] + (s[min(f + 1, len(s) - 1)] - s[f]) * (k - f)
+
+
+def evaluate_forecast(fc, actual, geo, P):
+    """fc: 예측 기록, actual: {측정소: t+h 실제 PM2.5}."""
+    import statistics
+    names = [s for s in fc["pred_st"] if actual.get(s) is not None and fc["base"].get(s) is not None]
+    if len(names) < 5:
+        return None
+    pr = [fc["pred_st"][s] for s in names]
+    ac = [actual[s] for s in names]
+    bs = [fc["base"][s] for s in names]
+    err = [p - a for p, a in zip(pr, ac)]
+    mae = sum(abs(e) for e in err) / len(err)
+    rmse = _math.sqrt(sum(e * e for e in err) / len(err))
+    rmse_p = _math.sqrt(sum((b - a) ** 2 for b, a in zip(bs, ac)) / len(ac))
+    mean_a = sum(ac) / len(ac)
+    r = _pearson(pr, ac)
+    rho = _pearson(_rank(pr), _rank(ac))
+    # 격자 고농도 구역 일치도 (예상 상위 25% 칸 vs 실제 상위 25% 칸)
+    g_pred = pm_grid(fc["base"], geo, P, fc["sources"], fc["alpha"], fc["sigma"])
+    g_act = pm_grid(actual, geo, P)
+    iou = None
+    if g_pred and g_act:
+        cells = [(p, a) for p, a in zip(g_pred, g_act) if p is not None and a is not None]
+        if cells:
+            tp, ta = _quantile([p for p, _ in cells], P["hotspot_q"]), _quantile([a for _, a in cells], P["hotspot_q"])
+            A = {i for i, (p, _) in enumerate(cells) if p >= tp}
+            B = {i for i, (_, a) in enumerate(cells) if a >= ta}
+            iou = len(A & B) / len(A | B) if A | B else None
+    # 밈 장소가 실제로 도시 중앙값보다 짙었나 (적중률)
+    pts = [(geo[s]["lat"], geo[s]["lon"], actual[s]) for s in actual if s in geo and actual[s] is not None]
+    med = statistics.median([v for *_, v in pts]) if pts else None
+    hits = [idw(pts, s["lat"], s["lon"]) > med for s in fc["sources"] if s["u"] > 0] if med is not None else []
+    # 보정용: 공통 변화(중앙값)를 뺀 잔차 × 밈 특성값
+    resid = [a - b for a, b in zip(ac, bs)]
+    common = statistics.median(resid)
+    feats = [kernel_sum(fc["sources"], geo[s]["lat"], geo[s]["lon"], fc["sigma"]) for s in names]
+    return {"n": len(names), "mae": round(mae, 2), "rmse": round(rmse, 2), "bias": round(sum(err) / len(err), 2),
+            "r": None if r is None else round(r, 3), "rho": None if rho is None else round(rho, 3),
+            "acc": round(max(0.0, 100 * (1 - mae / mean_a)), 1) if mean_a > 0 else None,
+            "iou": None if iou is None else round(100 * iou, 1),
+            "rmse_persist": round(rmse_p, 2),
+            "skill": round(100 * (1 - rmse / rmse_p), 1) if rmse_p > 0 else 0.0,
+            "hit": round(100 * sum(hits) / len(hits), 1) if hits else None, "n_hit": len(hits),
+            "sum_rf": round(sum((x - common) * f for x, f in zip(resid, feats)), 4),
+            "sum_ff": round(sum(f * f for f in feats), 6), "actual_t": fc["target"]}
+
+
+def pm_forecast_cycle(cfg, keys, hist, sido):
+    """에어코리아 시도별 값이 들어올 때마다: 실제값 저장 → 끝난 예측 채점 → α 보정 → 다음 예측 발행."""
+    P = pm_cfg(cfg)
+    if not P["enabled"] or not sido:
+        return
+    pm = hist.setdefault("pm_map", {})
+    keep_names = [s for s, v in sido.items() if P["use_roadside"] or "도로" not in v.get("mang", "")]
+    geo = ensure_station_geo(keys, hist, keep_names)
+    t = max(v["t"] for v in sido.values())
+    vals = {s: sido[s]["pm25"] for s in keep_names if sido[s]["t"] == t and sido[s]["pm25"] is not None}
+    act = pm.setdefault("actual", {})
+    act[t] = {s: v for s, v in vals.items()}
+    cut = iso(now() - dt.timedelta(hours=P["keep"]))
+    pm["actual"] = {k: v for k, v in act.items() if k >= cut}
+    # 채점
+    fcs = pm.setdefault("forecasts", [])
+    for fc in fcs:
+        if fc.get("eval") is None and fc["target"] in pm["actual"]:
+            fc["eval"] = evaluate_forecast(fc, pm["actual"][fc["target"]], geo, P)
+    # α 보정 (최소제곱, 0~30 µg/m³)
+    alpha = P["alpha"]
+    ev = [f["eval"] for f in fcs if f.get("eval")]
+    srf, sff = sum(e["sum_rf"] for e in ev), sum(e["sum_ff"] for e in ev)
+    if P["calibrate"] and sff > 0.05 and len(ev) >= 6:
+        alpha = round(_clamp(srf / sff, 0.0, 30.0), 2)
+    pm["calib"] = {"alpha": alpha, "n": len(ev), "sum_ff": round(sff, 4), "default": P["alpha"],
+                   "calibrated": P["calibrate"] and sff > 0.05 and len(ev) >= 6}
+    # 다음 예측 발행 (같은 기준 시각이면 한 번만)
+    target = iso(_pt(t) + dt.timedelta(hours=P["horizon_h"]))
+    if not any(f["issued"] == t for f in fcs):
+        srcs = meme_sources(cfg, hist)
+        sigma = P["sigma_km"]
+        pred = {}
+        for s, v in vals.items():
+            if s in geo:
+                pred[s] = round(v + alpha * kernel_sum(srcs, geo[s]["lat"], geo[s]["lon"], sigma), 2)
+        fcs.append({"issued": t, "target": target, "made": iso(now()), "alpha": alpha, "sigma": sigma,
+                    "base": vals, "pred_st": pred, "sources": srcs, "eval": None})
+    pm["forecasts"] = [f for f in fcs if f["issued"] >= cut][-P["keep"]:]
+    pm["grid"] = {"bbox": PM_BBOX, "nx": P["grid"][0], "ny": P["grid"][1], "mask_km": P["mask_km"],
+                  "hotspot_q": P["hotspot_q"]}
+    done = [f["eval"] for f in pm["forecasts"] if f.get("eval")]
+    if done:
+        def avg(k):
+            xs = [e[k] for e in done if e.get(k) is not None]
+            return round(sum(xs) / len(xs), 2) if xs else None
+        pm["summary"] = {k: avg(k) for k in ("acc", "iou", "r", "rho", "mae", "rmse", "skill", "hit")}
+        pm["summary"]["n"] = len(done)
+    log(f"미세먼지 분포 예측: 기준 {t} → {target}, 채점 완료 {len(done)}건, α={alpha}")
 
 
 # ---------------------------------------------------------------- 실행

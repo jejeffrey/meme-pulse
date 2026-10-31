@@ -44,7 +44,7 @@
       "offset_min": 2
     },
     "x": {
-      "every_min": 1440,
+      "every_min": 4320,
       "offset_min": 20
     },
     "scan": {

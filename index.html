@@ -404,7 +404,7 @@ const SOURCES = [
   {id:"seoul",     name:"서울 도시데이터", sub:"인구·연령·도로·날씨", cycle:15,  unit:"min"},
   {id:"air_urban", name:"에어코리아 도시대기", sub:"PM2.5·NO₂ 1시간값", cycle:90,  unit:"min"},
   {id:"air_road",  name:"에어코리아 도로변", sub:"PM2.5·NO₂ 1시간값",  cycle:90,  unit:"min"},
-  {id:"naver",     name:"네이버 검색 추이", sub:"연령별 일 단위 지수", cycle:36*60, unit:"day"},
+  {id:"naver",     name:"네이버 검색 추이", sub:"연령별 일 단위 지수", cycle:54*60, unit:"day"},
   {id:"x",         name:"X 게시물 수", sub:"선택 항목, 1시간 단위", cycle:120, unit:"min"},
   {id:"buzz",      name:"네이버 블로그·뉴스", sub:"검색어별 하루 게시물 수", cycle:200, unit:"fetch"},
   {id:"youtube",   name:"유튜브", sub:"최근 7일 업로드·조회수", cycle:380, unit:"fetch"},
@@ -644,7 +644,7 @@ function renderLanes(){
     const skey = s.id.startsWith("air_") ? "air" : s.id;
     const plan = DATA.schedule?.[skey], sla = DATA.sla?.[skey];
     if (last!=null){
-      const age = (nowRef()-last)/60e3, cyc = plan && s.unit!=="day" ? plan.every + ({seoul:20, air:45}[skey] ?? 10) : s.cycle;
+      const age = (nowRef()-last)/60e3, cyc = plan && s.unit!=="day" ? plan.every + ({seoul:35, air:45}[skey] ?? 10) : s.cycle;
       pct = Math.min(100, age/(cyc*3)*100);
       if (age <= cyc) { cls="fresh"; label="최신"; fresh++; }
       else if (age <= cyc*3) { cls="late"; label="지연"; }

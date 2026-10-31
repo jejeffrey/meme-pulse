@@ -188,6 +188,39 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
 .minimap .dot{cursor:pointer}
 .stagetag{color:var(--accent)}
 @media (max-width:900px){.recwrap{grid-template-columns:1fr}.mapcard{position:static}}
+/* 미세먼지 분포 지도 */
+:root{--pm-a:#2a78d6;--pm-b:#eb6834}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--pm-a:#3987e5;--pm-b:#d95926}}
+:root[data-theme="dark"]{--pm-a:#3987e5;--pm-b:#d95926}
+.recwrap{grid-template-columns:minmax(0,1fr) 380px}
+.pmmap{position:relative;width:100%;height:300px;border-radius:8px;overflow:hidden;background:var(--soft)}
+.pmmap.tall{height:340px}
+.pmhover{display:none;position:absolute;right:8px;top:8px;z-index:500;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:12.5px;pointer-events:none}
+.pmpin{box-sizing:border-box;display:grid;place-items:center;border-radius:50%;background:var(--surface);border:2px solid var(--muted);color:var(--ink);font-size:11px;width:22px;height:22px}
+.pmpin.on{background:var(--a10);border-color:#fff;color:#fff;box-shadow:0 0 0 1px var(--a10)}
+.pmdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#0b0b0b;border:1.5px solid #fff;box-shadow:0 0 0 1px var(--line);margin:0 4px 0 8px;vertical-align:-1px}
+.pmdot.road{background:#52514e}
+.pmgrid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.pmcell{padding:10px}.pmcell h3{font-size:13.5px;margin:0 0 6px}
+.pmlegs{display:flex;flex-wrap:wrap;gap:10px 28px;margin:10px 0 0}
+.pmleg{flex:1 1 260px;max-width:420px}
+.pmbar{position:relative;height:10px;border-radius:5px;margin:4px 0 18px}
+.pmbar i{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--muted)}
+.pmbar em{position:absolute;top:13px;transform:translateX(-50%);font-style:normal;font-size:11px;color:var(--muted)}
+.pmtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:0 0 12px}
+.pmtile{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.pmtile span{display:block;font-size:12.5px;color:var(--muted)}.pmtile b{display:block;font-size:24px;line-height:1.25}
+.pmtile small{display:block;font-size:12px;color:var(--muted)}.pmtile em{display:block;font-style:normal;font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.35}
+.pmsvg{width:100%;height:auto;display:block}.pmsvg text{fill:var(--muted);font-size:11px}.pmsvg .dl{fill:var(--ink);font-size:11.5px}
+.pmsvg .gl{stroke:var(--soft);stroke-width:1}.pmsvg .ref{stroke:var(--muted);stroke-dasharray:4 4}
+.pmsvg .pt{fill:var(--pm-a);stroke:var(--surface);stroke-width:2;cursor:default}.pmsvg .pt.road{fill:var(--pm-b)}.pmsvg .pt:hover{r:7}
+.pmsvg .cross{stroke:var(--muted);stroke-width:1}
+.ctip{display:none;position:fixed;z-index:1000;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:12.5px;box-shadow:0 2px 8px rgba(0,0,0,.12);pointer-events:none;max-width:280px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 8px}
+.seg button{background:var(--surface);border:0;padding:4px 12px;cursor:pointer;font-size:13px;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}.seg button[aria-pressed=true]{background:var(--accent);color:var(--surface);font-weight:600}
+.leaflet-container{font:inherit}
+@media (max-width:900px){.pmgrid3{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -261,6 +294,7 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
       <div class="reclist" id="recList"></div>
       <aside class="mapcard" id="recMap"></aside>
     </div>
+    <div id="pmCompare" style="margin-top:18px"></div>
     <details class="how" style="margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px">
       <summary>추천에서 뺀 키워드와 이유 (<span id="rejCount">0</span>)</summary>
       <p class="note">흔한 말이 엉뚱한 가게로 풀리거나(예: ‘운전’→운전학원), 뉴스·인물 급상승어가 같은 이름의 가게로 풀린 경우를 걸러 냅니다. 이 기준은 추적 장소 선정에도 똑같이 쓰입니다.</p>
@@ -992,7 +1026,7 @@ function renderRecs(){
   if (!R || !(R.items||[]).length){
     $("#recSummary").innerHTML = !R ? "아직 추천 자료가 없습니다. 새 수집기(collect.py)가 한 번 돌면 채워집니다. 밈 키워드 발굴(네이버 키)과 서울 주요 장소 스캔(서울 키)이 있어야 점수가 의미 있습니다."
       : `마지막 계산 ${fmtDT(ms(R.at))}. 기준을 통과한 밈 장소가 아직 없습니다. 키워드 ${R.considered}개를 검사했습니다.`;
-    list.innerHTML=""; map.innerHTML=""; $("#rejTable").innerHTML=""; $("#rejCount").textContent=String((R?.rejected||[]).length); return;
+    list.innerHTML=""; map.innerHTML=""; $("#rejTable").innerHTML=""; renderPmCompare(); $("#rejCount").textContent=String((R?.rejected||[]).length); return;
   }
   const items = R.items;
   if (!items.find(r=>r.key===ui.rec)) ui.rec = items[0].key;
@@ -1033,37 +1067,251 @@ function renderRecs(){
   list.querySelectorAll("[data-go]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); ui.place=b.dataset.go; ui.group=null; CURSOR=null; saveUi(); selectTab("linked"); });
   list.querySelectorAll("[data-recsel]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); ui.rec=b.dataset.recsel; saveUi(); renderRecs(); });
   renderRecMap(items);
+  renderPmCompare();
   const rej = R.rejected||[];
   $("#rejCount").textContent = String(rej.length);
   $("#rejTable").innerHTML = `<thead><tr><th>키워드</th><th>찾은 경로</th><th>풀린 장소</th><th>뺀 이유</th></tr></thead><tbody>`+
     (rej.length? rej.map(x=>`<tr><td>${esc(x.term)}</td><td>${esc(x.source)}</td><td style="text-align:left">${esc(x.place)}${x.cat?`<br><span class="small">${esc(x.cat)}</span>`:""}</td><td style="text-align:left;white-space:normal">${esc(x.why)}</td></tr>`).join("")
      : `<tr><td colspan="4" class="empty">없음</td></tr>`)+"</tbody>";
 }
-function renderRecMap(items){
-  const map=$("#recMap"); const r = items.find(x=>x.key===ui.rec)||items[0]; const k=embedKey();
-  let body;
-  if (k){
-    const q = r.lat&&r.lon ? `${r.lat},${r.lon}` : `${r.label} ${r.gu||""} 서울`;
-    body = `<iframe title="${esc(r.label)} 지도" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
-      src="https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(k)}&q=${encodeURIComponent(q)}&language=ko&region=KR&zoom=15"></iframe>`;
-  } else {
-    // 키 없이: 서울 범위 위에 추천 장소를 점으로 (좌표가 있는 것만)
-    const W=320,Hh=250, la0=37.43, la1=37.70, lo0=126.76, lo1=127.19;
-    const X=lo=>8+(lo-lo0)/(lo1-lo0)*(W-16), Y=la=>8+(la1-la)/(la1-la0)*(Hh-16);
-    const pts = items.map((x,i)=>({x,i})).filter(o=>o.x.lat&&o.x.lon);
-    const river = [[126.77,37.585],[126.85,37.57],[126.9,37.545],[126.95,37.525],[126.99,37.515],[127.03,37.525],[127.07,37.53],[127.1,37.515],[127.13,37.535],[127.18,37.55]];
-    body = `<svg class="minimap" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="추천 장소 위치">
-      <rect x="4" y="4" width="${W-8}" height="${Hh-8}" rx="8" fill="none" stroke="var(--line)"/>
-      <polyline points="${river.map(([lo,la])=>X(lo).toFixed(1)+","+Y(la).toFixed(1)).join(" ")}" fill="none" stroke="var(--air2)" stroke-width="5" opacity=".35" stroke-linecap="round"/>
-      <text x="${X(126.9)}" y="${Y(37.535)+16}">한강</text>
-      ${pts.map(({x,i})=>`<g class="dot" data-recsel="${esc(x.key)}"><circle cx="${X(x.lon).toFixed(1)}" cy="${Y(x.lat).toFixed(1)}" r="${x.key===r.key?9:7}" fill="var(${x.key===r.key?"--a10":"--accent"})" stroke="var(--surface)" stroke-width="2"/>
-        <text x="${X(x.lon).toFixed(1)}" y="${(Y(x.lat)+3.5).toFixed(1)}" text-anchor="middle" style="fill:var(--surface);font-weight:700">${i+1}</text></g>`).join("")}
-    </svg>${pts.length<items.length?`<p class="small" style="margin:6px 0 0">좌표가 아직 없는 장소 ${items.length-pts.length}곳은 점이 없습니다(카카오 키로 자동 채움).</p>`:""}`;
+/* ============================== 미세먼지 분포: 예상 vs 실제 ============================== */
+// 색: 농도 = 한 색조(연한 주황→진한 갈색, 예상·실제가 같은 눈금), 차이 = 파랑(예상<실제)·회색·빨강(예상>실제)
+const PM_SEQ = ["#fdeee6","#f9cdb5","#f4a582","#eb6834","#c94c1c","#9a3612","#6b240b"];
+const PM_DIV = ["#1c5cab","#6da7ec","#f0efec","#ec8a89","#c23434"];
+const PM_GRADES = [[15,"좋음"],[35,"보통"],[75,"나쁨"]];
+const hex2rgb = h => [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+function rampAt(stops, t){ t=Math.max(0,Math.min(1,t)); const x=t*(stops.length-1), i=Math.min(stops.length-2,Math.floor(x)), f=x-i;
+  const a=hex2rgb(stops[i]), b=hex2rgb(stops[i+1]); return a.map((v,k)=>Math.round(v+(b[k]-v)*f)); }
+const kmB = (a1,o1,a2,o2)=>{ const dy=(a1-a2)*111, dx=(o1-o2)*111*Math.cos((a1+a2)/2*Math.PI/180); return Math.hypot(dx,dy); };
+function pmPts(vals){ const g=DATA?.pm_map?.stations||{}; return Object.entries(vals||{}).filter(([s,v])=>g[s]&&v!=null).map(([s,v])=>[g[s].lat,g[s].lon,v,s,g[s].mang||""]); }
+function idwJS(pts, la, lo){ let n=0,d=0; for(const p of pts){ const k=kmB(la,lo,p[0],p[1]); if(k<0.05) return p[2]; const w=1/(k*k); n+=w*p[2]; d+=w; } return d? n/d : null; }
+function kernJS(srcs, la, lo, sig){ let s=0; for(const q of srcs||[]){ const k=kmB(la,lo,q.lat,q.lon); s+=q.u*Math.exp(-(k*k)/(2*sig*sig)); } return s; }
+// 값 함수: (위도, 경도) → 값 또는 null (측정소에서 mask_km보다 멀면 null)
+function pmField(kind, fc){
+  const G=DATA.pm_map.grid||{mask_km:6}; let pts;
+  if (kind==="pred"){ pts=pmPts(fc.base); return (la,lo)=>{ if(!pts.length||Math.min(...pts.map(p=>kmB(la,lo,p[0],p[1])))>G.mask_km) return null; return idwJS(pts,la,lo)+fc.alpha*kernJS(fc.sources,la,lo,fc.sigma); }; }
+  if (kind==="actual"){ pts=pmPts(DATA.pm_map.actual?.[fc.target]||{}); return (la,lo)=>{ if(!pts.length||Math.min(...pts.map(p=>kmB(la,lo,p[0],p[1])))>G.mask_km) return null; return idwJS(pts,la,lo); }; }
+  const p=pmField("pred",fc), a=pmField("actual",fc);
+  return (la,lo)=>{ const x=p(la,lo), y=a(la,lo); return x==null||y==null? null : x-y; };
+}
+function pmGridCanvas(fn, colorOf){
+  const G=DATA.pm_map.grid, [s,n,w,e]=G.bbox, nx=G.nx*2, ny=G.ny*2;
+  const c=document.createElement("canvas"); c.width=nx; c.height=ny; const ctx=c.getContext("2d"); const img=ctx.createImageData(nx,ny);
+  const vals=[];
+  for(let j=0;j<ny;j++){ const la=n-(n-s)*(j+0.5)/ny; for(let i=0;i<nx;i++){ const lo=w+(e-w)*(i+0.5)/nx; const v=fn(la,lo); vals.push(v);
+    const o=(j*nx+i)*4; if(v==null){ img.data[o+3]=0; continue; } const [r,g,b]=colorOf(v); img.data[o]=r; img.data[o+1]=g; img.data[o+2]=b; img.data[o+3]=210; } }
+  ctx.putImageData(img,0,0); return {url:c.toDataURL(), vals};
+}
+let LEAF=null;
+function loadLeaflet(){
+  if (window.L) return Promise.resolve(window.L);
+  if (LEAF) return LEAF;
+  LEAF = new Promise(res=>{
+    const css=document.createElement("link"); css.rel="stylesheet"; css.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"; document.head.appendChild(css);
+    const js=document.createElement("script"); js.src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    js.onload=()=>res(window.L||null); js.onerror=()=>res(null); document.head.appendChild(js);
+    setTimeout(()=>res(window.L||null), 8000);
+  });
+  return LEAF;
+}
+const PMMAPS = {};
+let PM_SYNC = false;
+function pmMap(id, sync){
+  const el=document.getElementById(id); if(!el||!window.L) return null;
+  if (PMMAPS[id] && PMMAPS[id].el===el) return PMMAPS[id];
+  const dark = getComputedStyle(document.documentElement).colorScheme.includes("dark") || document.documentElement.dataset.theme==="dark";
+  const m=L.map(el,{scrollWheelZoom:false, zoomSnap:0.25, attributionControl:true});
+  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark?"dark_all":"light_all"}/{z}/{x}/{y}{r}.png`,
+    {maxZoom:17, subdomains:"abcd", attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'}).addTo(m);
+  const [s,n,w,e]=DATA.pm_map.grid.bbox; m.fitBounds([[s,w],[n,e]]);
+  const hover=document.createElement("div"); hover.className="pmhover"; el.appendChild(hover);
+  const rec={el,m,hover,layers:[],fn:null,unit:"",sync};
+  m.on("mousemove",ev=>{ if(!rec.fn) return; const v=rec.fn(ev.latlng.lat, ev.latlng.lng); hover.style.display=v==null?"none":"block";
+    if(v!=null) hover.textContent = rec.fmt(v); });
+  m.on("mouseout",()=>{ hover.style.display="none"; });
+  if (sync) m.on("move",()=>{ if(PM_SYNC) return; PM_SYNC=true; for(const k in PMMAPS){ const o=PMMAPS[k]; if(o!==rec && o.sync) o.m.setView(m.getCenter(), m.getZoom(), {animate:false}); } PM_SYNC=false; });
+  PMMAPS[id]=rec; setTimeout(()=>m.invalidateSize(),50); return rec;
+}
+function pmPaint(rec, fn, kind, scale, fc, recItems){
+  if(!rec) return;
+  rec.layers.forEach(l=>rec.m.removeLayer(l)); rec.layers=[];
+  const [s,n,w,e]=DATA.pm_map.grid.bbox;
+  const colorOf = kind==="diff" ? v=>rampAt(PM_DIV,(v/scale.dmax+1)/2) : v=>rampAt(PM_SEQ,(v-scale.min)/(scale.max-scale.min||1));
+  const g=pmGridCanvas(fn,colorOf);
+  rec.layers.push(L.imageOverlay(g.url,[[s,w],[n,e]],{opacity:0.72, interactive:false}).addTo(rec.m));
+  rec.fn=fn; rec.fmt = kind==="diff" ? v=>`예상−실제 ${v>=0?"+":""}${v.toFixed(1)} ㎍/㎥` : v=>`PM2.5 ${v.toFixed(1)} ㎍/㎥ (${v<=15?"좋음":v<=35?"보통":v<=75?"나쁨":"매우 나쁨"})`;
+  // 측정소: 실제(또는 기준) 값을 작은 점으로
+  const stVals = kind==="pred" ? fc.base : (DATA.pm_map.actual?.[fc.target]||{});
+  for (const [la,lo,v,name,mang] of pmPts(stVals)){
+    const mk=L.circleMarker([la,lo],{radius:3.5,weight:1.5,color:"#ffffff",fillColor:mang.includes("도로")?"#52514e":"#0b0b0b",fillOpacity:0.9});
+    mk.bindTooltip(`${name} (${mang||"측정소"})<br>${kind==="pred"?"예측 기준(지금)":"실제"} ${v} ㎍/㎥${kind!=="actual"&&fc.pred_st?.[name]!=null?`<br>예상 ${fc.pred_st[name]} ㎍/㎥`:""}`);
+    rec.layers.push(mk.addTo(rec.m));
   }
-  map.innerHTML = `<h3>${esc(r.label)}</h3>${body}
-    <div class="recact"><a href="${esc(gmapsUrl(r))}" target="_blank" rel="noopener">구글 지도에서 열기</a><a href="${esc(kakaoUrl(r))}" target="_blank" rel="noopener">카카오맵</a></div>
-    ${k?"":`<p class="small" style="margin:8px 0 0">구글 지도를 여기 바로 띄우려면 ‘설정’ 탭에 지도 화면용 키를 넣으세요 (Maps Embed API, 무료, 웹사이트 제한 필수). 키가 없어도 위 링크는 작동합니다.</p>`}`;
-  map.querySelectorAll("[data-recsel]").forEach(g=>g.onclick=()=>{ ui.rec=g.dataset.recsel; saveUi(); renderRecs(); document.querySelector(`[data-rec="${CSS.escape(ui.rec)}"]`)?.scrollIntoView({behavior:"smooth",block:"nearest"}); });
+  // 밈 장소
+  (fc.sources||[]).forEach(q=>{
+    const ri = (recItems||[]).findIndex(r=>r.key===q.key);
+    const ic=L.divIcon({className:"pmpin"+(q.u>0?" on":""), html:`<b>${ri>=0?ri+1:"•"}</b>`, iconSize:[22,22]});
+    const mk=L.marker([q.lat,q.lon],{icon:ic});
+    mk.bindTooltip(`${esc(q.label)}<br>밈 신호 ${Math.round(q.meme*100)}% · 평소 대비 ${q.ratio?q.ratio.toFixed(2)+"배":"–"} · 바람 ${q.wind} m/s<br>예상 증가 +${(fc.alpha*q.u).toFixed(1)} ㎍/㎥`);
+    if (ri>=0) mk.on("click",()=>{ ui.rec=q.key; saveUi(); renderRecs(); });
+    rec.layers.push(mk.addTo(rec.m));
+  });
+  return g.vals;
+}
+function pmScale(fc){
+  const xs=[...Object.values(fc.base||{}),...Object.values(fc.pred_st||{}),...Object.values(DATA.pm_map.actual?.[fc.target]||{})].filter(v=>v!=null);
+  const max=Math.max(35, Math.ceil((Math.max(...xs)+fc.alpha*0.6)/5)*5), min=Math.max(0,Math.floor(Math.min(...xs)/5)*5);
+  return {min, max, dmax: 6};
+}
+function pmLegend(scale){ return pmLegParts(scale).join(""); }
+function pmLegParts(scale){
+  const stops=PM_SEQ.map((c,i)=>`${c} ${Math.round(i/(PM_SEQ.length-1)*100)}%`).join(",");
+  const ticks=[scale.min, ...PM_GRADES.map(g=>g[0]).filter(v=>v>scale.min&&v<scale.max), scale.max];
+  const pos=v=>((v-scale.min)/(scale.max-scale.min)*100).toFixed(1);
+  const dstops=PM_DIV.map((c,i)=>`${c} ${i*25}%`).join(",");
+  return [`<div class="pmleg"><span class="small">PM2.5 (㎍/㎥) — 예상·실제 같은 눈금</span>
+      <div class="pmbar" style="background:linear-gradient(90deg,${stops})">${ticks.map(v=>`<i style="left:${pos(v)}%"></i><em style="left:${pos(v)}%">${v}</em>`).join("")}</div>
+      <span class="small">${PM_GRADES.filter(g=>g[0]>scale.min&&g[0]<scale.max).map(g=>`${g[0]}까지 ${g[1]}`).join(" · ")}</span></div>`,
+    `<div class="pmleg"><span class="small">차이 = 예상 − 실제</span>
+      <div class="pmbar" style="background:linear-gradient(90deg,${dstops})"><i style="left:0"></i><em style="left:0">−${scale.dmax}</em><i style="left:50%"></i><em style="left:50%">0</em><i style="left:100%"></i><em style="left:100%">+${scale.dmax}</em></div>
+      <span class="small">파랑: 실제가 더 짙음 · 빨강: 예상이 더 짙음</span></div>`,
+    `<div class="pmleg"><span class="small">표시</span><div class="small" style="line-height:1.9"><span class="pmpin on" style="display:inline-grid;position:static;margin-right:4px"><b>1</b></span>추천 밈 장소(번호=추천 순위) &nbsp;
+      <span class="pmdot"></span>도시대기 측정소 <span class="pmdot road"></span>도로변 측정소</div></div>`];
+}
+function pmForecasts(){ return (DATA?.pm_map?.forecasts||[]).slice().sort((a,b)=>a.issued.localeCompare(b.issued)); }
+function pmSelected(){
+  const fcs=pmForecasts(); const done=fcs.filter(f=>f.eval);
+  let f=done.find(x=>x.issued===ui.pmf); if(!f) f=done[done.length-1];
+  return f||null;
+}
+const TIP = (()=>{ let d; return { show(html,x,y){ if(!d){ d=document.createElement("div"); d.className="ctip"; document.body.appendChild(d);} d.innerHTML=html; d.style.display="block"; d.style.left=(x+14)+"px"; d.style.top=(y+14)+"px"; }, hide(){ if(d) d.style.display="none"; } }; })();
+function pmScatter(fc){
+  const act=DATA.pm_map.actual?.[fc.target]||{}, geo=DATA.pm_map.stations||{};
+  const rows=Object.keys(fc.pred_st||{}).filter(s=>act[s]!=null).map(s=>({s,p:fc.pred_st[s],a:act[s],road:(geo[s]?.mang||"").includes("도로")}));
+  if(!rows.length) return `<p class="empty">채점할 자료가 없습니다.</p>`;
+  const W=360,H=280,L0=44,R=12,T=12,B=36; const all=rows.flatMap(r=>[r.p,r.a]); let lo=Math.floor(Math.min(...all)/5)*5, hi=Math.ceil(Math.max(...all)/5)*5; if(hi===lo) hi+=5;
+  const X=v=>L0+(v-lo)/(hi-lo)*(W-L0-R), Y=v=>H-B-(v-lo)/(hi-lo)*(H-T-B); const step=niceStep((hi-lo)/5); const ticks=[]; for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step) ticks.push(v);
+  return `<svg class="pmsvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="측정소별 예상 대 실제 산점도">
+    ${ticks.map(v=>`<line x1="${L0}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" class="gl"/><text x="${L0-6}" y="${Y(v)+4}" text-anchor="end">${v}</text><text x="${X(v)}" y="${H-B+16}" text-anchor="middle">${v}</text>`).join("")}
+    <line x1="${X(lo)}" y1="${Y(lo)}" x2="${X(hi)}" y2="${Y(hi)}" class="ref"/><text x="${X(hi)-4}" y="${Y(hi)+14}" text-anchor="end">예상 = 실제</text>
+    <text x="${(L0+W-R)/2}" y="${H-4}" text-anchor="middle">실제 PM2.5 (㎍/㎥)</text><text transform="translate(12 ${(T+H-B)/2}) rotate(-90)" text-anchor="middle">예상</text>
+    ${rows.map(r=>`<circle cx="${X(r.a).toFixed(1)}" cy="${Y(r.p).toFixed(1)}" r="5" class="pt ${r.road?"road":""}" data-tip="${esc(r.s)} · ${r.road?"도로변":"도시대기"}<br>예상 ${r.p} · 실제 ${r.a} (${r.p-r.a>=0?"+":""}${(r.p-r.a).toFixed(1)})"/>`).join("")}
+  </svg><div class="slegend"><span><i style="background:var(--pm-a)"></i>도시대기 측정소</span><span><i style="background:var(--pm-b)"></i>도로변 측정소</span></div>`;
+}
+function pmTrend(){
+  const done=pmForecasts().filter(f=>f.eval); if(done.length<2) return `<p class="empty">채점된 예측이 2건 이상 쌓이면(약 2시간) 추이가 나타납니다.</p>`;
+  const W=520,H=230,L0=36,R=70,T=12,B=28; const xs=done.map(f=>ms(f.target)); const x0=Math.min(...xs), x1=Math.max(...xs);
+  const X=m=>L0+(m-x0)/((x1-x0)||1)*(W-L0-R), Y=v=>H-B-v/100*(H-T-B);
+  const ser=[["acc","정확도","--pm-a"],["iou","고농도 구역 일치도","--pm-b"]];
+  const path=k=>done.filter(f=>f.eval[k]!=null).map((f,i)=>`${i?"L":"M"}${X(ms(f.target)).toFixed(1)},${Y(f.eval[k]).toFixed(1)}`).join("");
+  const last=done[done.length-1];
+  return `<svg class="pmsvg" id="pmTrendSvg" viewBox="0 0 ${W} ${H}" role="img" aria-label="정확도와 일치도 추이">
+    ${[0,25,50,75,100].map(v=>`<line x1="${L0}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" class="gl"/><text x="${L0-6}" y="${Y(v)+4}" text-anchor="end">${v}</text>`).join("")}
+    <text x="${L0}" y="${H-8}">${fmtDT(x0)}</text><text x="${W-R}" y="${H-8}" text-anchor="end">${fmtDT(x1)}</text>
+    ${ser.map(([k,n,c])=>`<path d="${path(k)}" fill="none" stroke="var(${c})" stroke-width="2" stroke-linejoin="round"/>
+      ${last.eval[k]!=null?`<text x="${X(ms(last.target))+6}" y="${Y(last.eval[k])+4}" class="dl">${n.split(" ")[0]} ${fx(last.eval[k],0)}%</text>`:""}`).join("")}
+    <line id="pmCross" y1="${T}" y2="${H-B}" class="cross" style="display:none"/>
+    <rect x="${L0}" y="${T}" width="${W-L0-R}" height="${H-T-B}" fill="transparent" id="pmTrendHit"/>
+  </svg><div class="slegend">${ser.map(([k,n,c])=>`<span><i style="background:var(${c})"></i>${n} (%)</span>`).join("")}</div>`;
+}
+function pmBindCharts(){
+  document.querySelectorAll("#pmCompare [data-tip]").forEach(el=>{ el.onmousemove=e=>TIP.show(el.dataset.tip,e.clientX,e.clientY); el.onmouseleave=()=>TIP.hide(); });
+  const hit=$("#pmTrendHit"); if(!hit) return;
+  const svg=$("#pmTrendSvg"), done=pmForecasts().filter(f=>f.eval); const W=520,L0=36,R=70; const xs=done.map(f=>ms(f.target)); const x0=Math.min(...xs), x1=Math.max(...xs);
+  hit.onmousemove=e=>{ const b=svg.getBoundingClientRect(); const mx=(e.clientX-b.left)/b.width*W; const m=x0+(mx-L0)/(W-L0-R)*(x1-x0);
+    const f=done.reduce((a,c)=>Math.abs(ms(c.target)-m)<Math.abs(ms(a.target)-m)?c:a); const cx=L0+(ms(f.target)-x0)/((x1-x0)||1)*(W-L0-R);
+    const cr=$("#pmCross"); cr.setAttribute("x1",cx); cr.setAttribute("x2",cx); cr.style.display="";
+    TIP.show(`<b>${fmtDT(ms(f.target))}</b> (예측 ${fmtDT(ms(f.issued))})<br>정확도 ${fx(f.eval.acc)}% · 일치도 ${fx(f.eval.iou)}%<br>상관 r ${fx(f.eval.r,2)} · 밈 개선율 ${fx(f.eval.skill)}%`, e.clientX, e.clientY); };
+  hit.onmouseleave=()=>{ $("#pmCross").style.display="none"; TIP.hide(); };
+  hit.onclick=e=>{ /* 클릭한 시각의 예측으로 지도 이동 */ const b=svg.getBoundingClientRect(); const mx=(e.clientX-b.left)/b.width*W; const m=x0+(mx-L0)/(W-L0-R)*(x1-x0);
+    const f=done.reduce((a,c)=>Math.abs(ms(c.target)-m)<Math.abs(ms(a.target)-m)?c:a); ui.pmf=f.issued; saveUi(); renderPmCompare(); };
+}
+const PM_TILES = [
+  ["acc","정확도","%","측정소 위치에서 100 × (1 − 평균 절대 오차 ÷ 평균 실제값)"],
+  ["iou","고농도 구역 일치도","%","예상 지도와 실제 지도에서 상위 25% 짙은 칸이 겹치는 비율(IoU)"],
+  ["r","분포 상관 r","","측정소별 예상·실제 값의 피어슨 상관 (1에 가까울수록 모양이 같음)"],
+  ["rho","순위 상관 ρ","","어디가 더 짙은가 순서가 맞는 정도 (스피어만)"],
+  ["skill","밈 정보 개선율","%","‘지금 값이 그대로’ 예측보다 오차(RMSE)가 줄어든 비율. 0보다 크면 밈 정보가 도움이 됨"],
+  ["hit","밈 장소 적중률","%","인구가 몰린 밈 장소가 실제로 서울 중앙값보다 짙었던 비율"],
+];
+function renderPmCompare(){
+  const box=$("#pmCompare"); if(!box) return;
+  const P=DATA?.pm_map;
+  if (!P || !(P.forecasts||[]).length){ box.innerHTML=`<h3 class="sub">예상 vs 실제 미세먼지 분포</h3><p class="note">아직 예측 기록이 없습니다. 새 수집기가 에어코리아 값을 받을 때마다(매시 20분) 한 시간 뒤 분포를 예측하고, 그 시각 실제 값으로 채점합니다. 첫 채점은 약 1시간 뒤에 나타납니다.</p>`; return; }
+  const fc=pmSelected(); const fcs=pmForecasts(); const pending=fcs.filter(f=>!f.eval);
+  const S=P.summary||{}, E=fc?.eval||{};
+  if (!box.querySelector("#pmMapPred")){
+    box.innerHTML = `<h3 class="sub">예상 vs 실제 미세먼지 분포</h3>
+      <p class="note" id="pmNote" style="margin-top:0"></p>
+      <div class="row"><label class="small" for="pmFc">채점한 예측</label><select id="pmFc"></select><span class="small" id="pmCal"></span></div>
+      <div class="pmtiles" id="pmTiles"></div>
+      <div class="pmgrid3">
+        <div class="card pmcell"><h3 id="pmTPred">예상</h3><div class="pmmap" id="pmMapPred"></div></div>
+        <div class="card pmcell"><h3 id="pmTAct">실제</h3><div class="pmmap" id="pmMapAct"></div></div>
+        <div class="card pmcell"><h3>차이 (예상 − 실제)</h3><div class="pmmap" id="pmMapDiff"></div></div>
+      </div>
+      <div id="pmLegend" class="pmlegs"></div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="card"><h3>측정소별 예상 vs 실제</h3><div id="pmScatter"></div></div>
+        <div class="card"><h3>채점 추이 <span class="small">(점을 누르면 그 시각 지도로)</span></h3><div id="pmTrend"></div></div>
+      </div>
+      <details class="how" style="margin-top:12px;background:var(--surface);border:1px solid var(--line);border-radius:8px"><summary>예측·채점 방법</summary><div class="note" style="max-width:90ch">
+        <p><b>예측</b>: 매시 에어코리아 서울 측정소(${Object.keys(P.stations||{}).length}곳) 값을 받으면, 한 시간 뒤 값을 예측합니다. 기준선은 ‘지금 값이 그대로 간다’(지속 예측)이고, 여기에 추천된 밈 장소마다 <code>증가량 = α × (평소 대비 인구 − 1) × 밈 신호 ÷ (1 + 풍속)</code>을 장소 중심 가우스(σ = 반경 약 1 km)로 퍼뜨려 더합니다. 지도는 측정소 값을 역거리가중(IDW)으로 보간한 그림이며, 측정소에서 6 km보다 먼 곳은 비워 둡니다.</p>
+        <p><b>채점</b>: 한 시간 뒤 실제 측정값과 측정소 위치에서 비교합니다(정확도·상관·순위 상관). 지도 전체에서는 상위 25% 짙은 칸이 겹치는 비율(IoU)을 셉니다. 밈 정보의 순수한 효과는 ‘지속 예측’ 대비 오차 감소율(개선율)로 따로 봅니다. 정확도가 높아도 개선율이 0 근처면 ‘원래 공기 분포가 잘 안 바뀌어서’ 맞힌 것입니다.</p>
+        <p><b>보정</b>: α는 지난 예측들에서 도시 전체 공통 변화를 뺀 잔차와 밈 특성값으로 최소제곱 추정합니다(0~30 ㎍/㎥). 측정소 좌표는 에어코리아 측정소정보 API(없으면 카카오 근사 위치)를 씁니다.</p>
+        <p><b>한계</b>: 공공 측정소는 서울 전체 ${Object.keys(P.stations||{}).length}곳뿐이라 밈 장소 바로 옆의 짧은 증가는 잡히지 않을 수 있습니다. 현장 휴대 센서 기록(‘현장 측정’ 탭)으로 보완하세요.</p></div></details>`;
+    $("#pmFc").onchange=e=>{ ui.pmf=e.target.value; saveUi(); renderPmCompare(); };
+  }
+  const done=fcs.filter(f=>f.eval);
+  $("#pmFc").innerHTML = done.length ? done.slice().reverse().map(f=>`<option value="${f.issued}" ${fc&&f.issued===fc.issued?"selected":""}>${fmtDT(ms(f.issued))} 기준 → ${fmtDT(ms(f.target))} 예상 · 정확도 ${fx(f.eval.acc)}%</option>`).join("") : `<option>아직 채점된 예측이 없습니다</option>`;
+  $("#pmCal").textContent = P.calib ? `α = ${fx(P.calib.alpha,2)} ㎍/㎥ ${P.calib.calibrated?`(채점 ${P.calib.n}건으로 보정)`:`(기본값, 채점 6건 이후 자동 보정)`}` : "";
+  $("#pmNote").innerHTML = `밈 펄스가 추천한 장소의 인구·밈 신호·바람으로 <b>한 시간 뒤</b> 미세먼지(PM2.5) 분포를 예측하고, 실제 측정 분포와 비교해 채점합니다. 채점 ${S.n||0}건 평균: 정확도 <b>${fx(S.acc)}%</b>, 고농도 구역 일치도 <b>${fx(S.iou)}%</b>, 밈 정보 개선율 <b>${fx(S.skill)}%</b>.${pending.length?` 다음 예측: ${fmtDT(ms(pending[pending.length-1].target))} (채점 대기).`:""}`;
+  $("#pmTiles").innerHTML = PM_TILES.map(([k,n,u,d])=>`<div class="pmtile" title="${esc(d)}"><span>${n}</span><b>${E[k]==null?"–":fx(E[k],k==="r"||k==="rho"?2:1)}${E[k]==null?"":u}</b><small>평균 ${S[k]==null?"–":fx(S[k],k==="r"||k==="rho"?2:1)+u}</small><em>${esc(d)}</em></div>`).join("");
+  if (!fc){ $("#pmScatter").innerHTML=`<p class="empty">첫 채점까지 약 1시간 기다려 주세요.</p>`; $("#pmTrend").innerHTML=pmTrend(); return; }
+  $("#pmTPred").textContent = `예상 (${fmtDT(ms(fc.issued))} 기준 → ${fmtDT(ms(fc.target))})`;
+  $("#pmTAct").textContent = `실제 (${fmtDT(ms(fc.target))} 측정)`;
+  const scale=pmScale(fc); $("#pmLegend").innerHTML=pmLegend(scale);
+  $("#pmScatter").innerHTML=pmScatter(fc); $("#pmTrend").innerHTML=pmTrend(); pmBindCharts();
+  const items=DATA.recs?.items||[];
+  loadLeaflet().then(L=>{
+    if(!L){ ["pmMapPred","pmMapAct","pmMapDiff"].forEach(id=>{ const el=$("#"+id); if(el) el.innerHTML=`<p class="empty">지도 파일(Leaflet)을 불러오지 못했습니다. 인터넷 연결을 확인하세요.</p>`; }); return; }
+    pmPaint(pmMap("pmMapPred",true), pmField("pred",fc), "seq", scale, fc, items);
+    const fa=Object.assign({},fc,{sources:fc.sources});
+    pmPaint(pmMap("pmMapAct",true), pmField("actual",fc), "seq", scale, Object.assign({},fa), items);
+    pmPaint(pmMap("pmMapDiff",true), pmField("diff",fc), "diff", scale, fc, items);
+  });
+}
+// 오른쪽 지도: 실제 지도 위에 다음 1시간 예상 분포(또는 최신 실제·차이) + 추천 장소
+function renderRecMap(items){
+  const box=$("#recMap"); const r = items.find(x=>x.key===ui.rec)||items[0];
+  const P=DATA?.pm_map; const fcs=pmForecasts(); const latest=fcs[fcs.length-1]; const sel=pmSelected();
+  ui.pmMode = ui.pmMode || "pred";
+  if (!box.querySelector("#pmMapMain")){
+    box.innerHTML = `<h3 id="recMapTitle"></h3>
+      <div class="seg" role="group" aria-label="지도 보기">${[["pred","예상"],["actual","실제"],["diff","차이"]].map(([k,n])=>`<button data-pmmode="${k}">${n}</button>`).join("")}</div>
+      <div class="pmmap tall" id="pmMapMain"></div><div id="recMapLegend"></div><p class="small" id="recMapNote" style="margin:6px 0 0"></p>
+      <div class="recact" id="recMapLinks"></div>`;
+    box.querySelectorAll("[data-pmmode]").forEach(b=>b.onclick=()=>{ ui.pmMode=b.dataset.pmmode; saveUi(); renderRecMap(DATA.recs?.items||[]); });
+  }
+  box.querySelectorAll("[data-pmmode]").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.pmmode===ui.pmMode)));
+  $("#recMapTitle").textContent = r ? `${r.label}` : "추천 장소";
+  $("#recMapLinks").innerHTML = r ? `<a href="${esc(gmapsUrl(r))}" target="_blank" rel="noopener">구글 지도에서 열기</a><a href="${esc(kakaoUrl(r))}" target="_blank" rel="noopener">카카오맵</a>` : "";
+  if (!P || !latest){ $("#recMapNote").textContent="미세먼지 예측 기록이 쌓이면(매시 20분) 이 지도에 예상 분포가 그려집니다. 지금은 추천 장소 위치만 표시합니다."; }
+  const mode = ui.pmMode==="pred" ? (latest?"pred":null) : (sel ? ui.pmMode : null);
+  const fc = mode==="pred" ? latest : sel;
+  loadLeaflet().then(L=>{
+    if(!L){ $("#pmMapMain").innerHTML=`<p class="empty">지도 파일을 불러오지 못했습니다.</p>`; return; }
+    if (!P?.grid){ /* 예측 기록 전: 장소만 */ const rec=pmMap("pmMapMain",false); if(!rec) return; rec.layers.forEach(l=>rec.m.removeLayer(l)); rec.layers=[];
+      items.forEach((x,i)=>{ if(!x.lat) return; const mk=L.marker([x.lat,x.lon],{icon:L.divIcon({className:"pmpin on",html:`<b>${i+1}</b>`,iconSize:[22,22]})}).bindTooltip(esc(x.label)); mk.on("click",()=>{ui.rec=x.key;saveUi();renderRecs();}); rec.layers.push(mk.addTo(rec.m)); }); return; }
+    const rec=pmMap("pmMapMain",false); if(!rec||!fc) return;
+    const scale=pmScale(fc);
+    pmPaint(rec, pmField(mode, fc), mode==="diff"?"diff":"seq", scale, fc, items);
+    if (r?.lat) rec.m.setView([r.lat,r.lon], Math.max(rec.m.getZoom(), 12), {animate:true});
+    $("#recMapLegend").innerHTML = pmLegParts(scale)[mode==="diff"?1:0];
+    const inc = r ? (fc.sources||[]).find(q=>q.key===r.key) : null;
+    $("#recMapNote").innerHTML = mode==="pred" ? `${fmtDT(ms(fc.target))} 예상 분포 (${fmtDT(ms(fc.issued))} 측정 기준)${inc?` · 이 장소 예상 증가 <b>+${(fc.alpha*inc.u).toFixed(1)} ㎍/㎥</b>`:""}. 지도 위에 마우스를 올리면 그 지점 값이 보입니다.`
+      : mode==="actual" ? `${fmtDT(ms(fc.target))} 실제 측정 분포 (측정소 값 보간)` : `${fmtDT(ms(fc.target))} 예상 − 실제. 파랑은 실제가 더 짙었던 곳, 빨강은 예상이 더 짙었던 곳`;
+  });
 }
 
 /* ============================== 자동 발굴 ============================== */

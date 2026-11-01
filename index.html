@@ -348,10 +348,13 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
   <!-- 시간 × 장소 -->
   <section class="view" id="v-hours">
     <div class="row">
+      <label class="small" for="hourSet">장소</label>
+      <select id="hourSet"><option value="recs">밈 추천 장소 (순위순, 추천과 함께 10분마다 갱신)</option><option value="tracked">추적 장소 (고정·발굴)</option></select>
       <label class="small" for="hourVar">지표</label>
       <select id="hourVar">
         <option value="pop">생활인구 (명)</option>
         <option value="cg">혼잡도 단계 (1 여유 ~ 4 붐빔)</option>
+        <option value="y">10·20대 비율 (%)</option>
         <option value="spd">도로 평균속도 (km/h)</option>
         <option value="pm25s">PM2.5 도시데이터 (㎍/㎥)</option>
         <option value="pm25u">PM2.5 도시대기 측정소 (㎍/㎥)</option>
@@ -363,7 +366,7 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
       <select id="dayType"><option value="all">전체</option><option value="wd">평일</option><option value="we">주말</option></select>
     </div>
     <div class="tablewrap"><table id="hourTable"></table></div>
-    <p class="note">선택 기간 동안 시간대별 평균입니다. 칸의 진하기는 같은 표 안에서의 상대 크기입니다. 괄호 안 숫자는 평균에 쓰인 관측 수입니다.</p>
+    <p class="note" id="hourNote">선택 기간 동안 시간대별 평균입니다. 칸의 진하기는 같은 표 안에서의 상대 크기입니다. 괄호 안 숫자는 평균에 쓰인 관측 수입니다.</p>
   </section>
 
   <!-- 현장 측정 -->
@@ -1423,6 +1426,7 @@ function hourValue(v, place){
   switch(v){
     case "pop": return S.map(r=>[r._m,r.pop]);
     case "cg": return S.map(r=>[r._m,r.cg]);
+    case "y": return S.map(r=>[r._m, r.age? (r.age["10"]||0)+(r.age["20"]||0) : null]);
     case "spd": return S.map(r=>[r._m,r.spd]);
     case "pm25s": return S.map(r=>[r._m,r.pm25]);
     case "pm25u": return U.map(r=>[r._m,r.pm25]);
@@ -1435,6 +1439,9 @@ function hourValue(v, place){
 function renderHours(){
   const tb = $("#hourTable");
   if (!DATA){ tb.innerHTML=""; return; }
+  ui.hourSet = ui.hourSet || "recs"; $("#hourSet").value = ui.hourSet;
+  if (ui.hourSet==="recs") return renderHoursRecs(tb);
+  $("#hourNote").textContent = "추적 장소의 선택 기간 동안 시간대별 평균입니다. 칸의 진하기는 같은 표 안에서의 상대 크기입니다. 괄호 안 숫자는 평균에 쓰인 관측 수입니다.";
   const [x0,x1] = windowRange();
   const places = DATA.places||[];
   const cells = {}; let lo=Infinity, hi=-Infinity;
@@ -1455,6 +1462,26 @@ function renderHours(){
     h += `<tr><td>${pad(hr)}시</td>${places.map(p=>{ const [v,n]=cells[p.id][hr]; return `<td style="${tint(v)}">${fx(v,digits)} <span class="small">${n?"("+n+")":""}</span></td>`; }).join("")}</tr>`;
   }
   tb.innerHTML = h+"</tbody>";
+}
+
+function renderHoursRecs(tb){
+  const R = DATA.recs, items = R?.items||[];
+  const key = ui.dayType==="wd"?"wd":ui.dayType==="we"?"we":"all";
+  if (!items.length){ tb.innerHTML=`<tr><td class="empty">아직 밈 추천 장소가 없습니다. 추천이 계산되면(10분마다) 이 표도 함께 채워집니다.</td></tr>`; return; }
+  if (!items.some(x=>x.hours)){ tb.innerHTML=`<tr><td class="empty">새 수집기가 다음에 돌면(10분 이내) 추천 장소별 시간대 값이 채워집니다.</td></tr>`; return; }
+  let lo=Infinity, hi=-Infinity;
+  const col = items.map(x=>{ const arr=x.hours?.[ui.hourVar]?.[key]; if(arr) arr.forEach(([v])=>{ if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v);} }); return arr; });
+  const digits = ui.hourVar==="pop"?0:1;
+  const tint = v => { if(v==null||!isFinite(lo)||hi===lo) return ""; const f=(v-lo)/(hi-lo); return `background:color-mix(in srgb,var(--accent) ${Math.round(6+f*46)}%,var(--surface))`; };
+  const peak = col.map(arr=>{ if(!arr) return -1; let b=-1,bv=-Infinity; arr.forEach(([v],h)=>{ if(v!=null&&v>bv){bv=v;b=h;} }); return b; });
+  let h = `<thead><tr><th>시각</th>${items.map((x,i)=>`<th title="${esc(x.label)}">${i+1}. ${esc(x.label.length>12?x.label.slice(0,12)+"…":x.label)}<br><span class="small">${x.score}점${x.tracked_id?" · 추적 중":""}</span></th>`).join("")}</tr></thead><tbody>`;
+  for (let hr=0; hr<24; hr++){
+    h += `<tr><td>${pad(hr)}시</td>${col.map((arr,i)=>{ if(!arr) return `<td class="small">–</td>`; const [v,n]=arr[hr];
+      return `<td style="${tint(v)}${peak[i]===hr?";font-weight:700":""}">${fx(v,digits)} <span class="small">${n?"("+n+")":""}</span></td>`; }).join("")}</tr>`;
+  }
+  tb.innerHTML = h+"</tbody>";
+  $("#hourNote").innerHTML = `지금 밈 추천 상위 ${items.length}곳의 <b>최근 4주</b> 시간대별 평균입니다(${fmtDT(ms(R.at))} 계산). 추천 순위가 바뀌면(10분마다) 이 표도 같은 장소·순서로 함께 바뀝니다. `+
+    `인구·혼잡·10·20대 비율은 서울 주요 장소 스캔(3시간마다)과 추적 장소의 10분 기록을, 미세먼지는 그 장소의 도시대기·도로변 측정소 1시간값을 씁니다. 굵은 칸은 그 장소의 최댓값 시각, 괄호는 평균에 쓰인 관측 수, ‘–’는 아직 자료가 없는 지표입니다. 위 ‘기간’ 선택은 이 표에는 적용되지 않습니다.`;
 }
 
 /* ============================== 현장 측정 ============================== */
@@ -1701,6 +1728,7 @@ $("#groupSel").onchange = e=>{ ui.group=e.target.value; saveUi(); renderAges(); 
 $("#hourVar").onchange = e=>{ ui.hourVar=e.target.value; saveUi(); renderHours(); };
 $("#trendPlaceOnly").onchange = ()=>renderDiscover();
 $("#dayType").onchange = e=>{ ui.dayType=e.target.value; saveUi(); renderHours(); };
+$("#hourSet").onchange = e=>{ ui.hourSet=e.target.value; saveUi(); renderHours(); };
 $("#refreshBtn").onclick = ()=>{ if (DATA&&DATA.demo) return; loadData(true); };
 $("#saveSettings").onclick = ()=>{ cfg.embedKey=$("#embedInput").value.trim(); cfg.live=$("#liveInput").value.trim(); cfg.src=$("#srcInput").value.trim()||DEFAULT_SRC; cfg.interval=+$("#intervalSel").value; store.set("cfg",cfg); DATA=null; loadData(true); renderAll(); };
 $("#openFileBtn").onclick = ()=>$("#dataFile").click();

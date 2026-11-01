@@ -421,7 +421,8 @@ def run_scan(cfg, key, hist):
     if not scan.get("codes"):
         scan["codes"] = found            # 처음 한 번 실제 존재하는 코드만 기억
     cutoff = iso(now() - dt.timedelta(days=d.get("baseline_days", 28)))
-    stored = [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
+    stored = [dict({k: v for k, v in r.items() if not k.startswith("_")}, spd=r.get("_spd"), pm=r.get("_pm25"))
+              for r in rows]
     scan["rows"] = [r for r in scan.get("rows", []) if r["t"] >= cutoff] + stored
     save_json("scan.json", scan)
     hist["_scan_live"] = {r["code"]: r for r in rows}     # 이번 실행에서만 쓰는 현재 상태 (저장 안 함)
@@ -1569,6 +1570,61 @@ def best_windows(rows):
     return out
 
 
+HOUR_METRICS = ("pop", "cg", "y", "spd", "pm25s", "pm25u", "pm25r", "dpm", "dno2")
+
+
+def hour_profile(points):
+    """[(t, v)] → {'all'|'wd'|'we': [[평균, 개수] × 24]} (같은 시각 중복은 하나로)."""
+    seen, buck = set(), {"all": [[] for _ in range(24)], "wd": [[] for _ in range(24)], "we": [[] for _ in range(24)]}
+    for t, v in points:
+        if v is None or t in seen:
+            continue
+        seen.add(t)
+        h, we = _slot_hw(t)
+        buck["all"][h].append(v)
+        buck["we" if we else "wd"][h].append(v)
+    return {k: [[round(sum(b) / len(b), 2), len(b)] if b else [None, 0] for b in arr] for k, arr in buck.items()}
+
+
+def rec_hour_profiles(hist, item, scan_rows_of_code, since):
+    """추천 장소 한 곳의 시간대별 평균 (최근 4주): 인구·혼잡·10·20대 비율·도로속도·PM2.5(장소/측정소)·Δ."""
+    tid = item.get("tracked_id")
+    sobs = [o for o in hist.get("obs", []) if o.get("src") == "seoul" and o.get("place") == tid and o["t"] >= since] if tid else []
+    srows = [r for r in scan_rows_of_code if r["t"] >= since]
+    air = item.get("air") or {}
+    urban, road = air.get("urban"), air.get("roadside")
+    st = {"u": {}, "r": {}}
+    for o in hist.get("obs", []):
+        if o["t"] < since or o.get("src") not in ("air_urban", "air_road"):
+            continue
+        if o.get("station") == urban and o["src"] == "air_urban":
+            st["u"][o["t"]] = o
+        elif o.get("station") == road and o["src"] == "air_road":
+            st["r"][o["t"]] = o
+    for t, vals in ((hist.get("pm_map") or {}).get("actual") or {}).items():   # 서울 전체 측정소 1시간값(최근 4일)
+        if t < since:
+            continue
+        if urban in vals and t not in st["u"]:
+            st["u"][t] = {"pm25": vals[urban]}
+        if road and road in vals and t not in st["r"]:
+            st["r"][t] = {"pm25": vals[road]}
+    y_of = lambda o: ((o.get("age") or {}).get("10") or 0) + ((o.get("age") or {}).get("20") or 0) if o.get("age") else None
+    prof = {
+        "pop": [(r["t"], r["pop"]) for r in srows] + [(o["t"], o.get("pop")) for o in sobs],
+        "cg": [(r["t"], r.get("cg")) for r in srows] + [(o["t"], o.get("cg")) for o in sobs],
+        "y": [(r["t"], r.get("y")) for r in srows] + [(o["t"], y_of(o)) for o in sobs],
+        "spd": [(r["t"], r.get("spd")) for r in srows] + [(o["t"], o.get("spd")) for o in sobs],
+        "pm25s": [(r["t"], r.get("pm")) for r in srows] + [(o["t"], o.get("pm25")) for o in sobs],
+        "pm25u": [(t, o.get("pm25")) for t, o in st["u"].items()],
+        "pm25r": [(t, o.get("pm25")) for t, o in st["r"].items()],
+        "dpm": [(t, o["pm25"] - st["u"][t]["pm25"]) for t, o in st["r"].items()
+                if t in st["u"] and o.get("pm25") is not None and st["u"][t].get("pm25") is not None],
+        "dno2": [(t, round((o["no2"] - st["u"][t]["no2"]) * 1000, 1)) for t, o in st["r"].items()
+                 if t in st["u"] and o.get("no2") is not None and st["u"][t].get("no2") is not None],
+    }
+    return {k: hour_profile(sorted(v, key=lambda x: x[0])) for k, v in prof.items() if any(x[1] is not None for x in v)}
+
+
 def balanced_rejects(rows, per_reason=12):
     """뺀 키워드를 이유별로 고르게 보여 준다 (한 이유가 목록을 다 차지하지 않게)."""
     by = {}
@@ -1824,6 +1880,9 @@ def recommend_memes(cfg, hist):
         })
     items.sort(key=lambda x: -x["score"])
     keep = [x for x in items if x["score"] >= rc.get("min_score", 25)][:rc.get("top", 10)]
+    since = iso(now() - dt.timedelta(days=(cfg.get("discovery") or {}).get("baseline_days", 28)))
+    for x in keep:                              # ‘시간 × 장소’ 표용: 추천이 바뀔 때마다(10분) 함께 다시 계산
+        x["hours"] = rec_hour_profiles(hist, x, by_code.get((x.get("poi") or {}).get("code"), []), since)
     hist["recs"] = {"at": iso(now()), "items": keep, "considered": len(cands), "grouped": len(items),
                     "rejected": balanced_rejects(rejected.values()),
                     "weights": {"meme": 35, "crowd": 35, "air": 20, "prac": 10}}

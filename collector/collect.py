@@ -1535,8 +1535,12 @@ def task_recs_live(cfg, keys, hist):
         except Exception:
             return None
     got = [r for r in pmap(one, codes, 4) if r]
+    cache = hist.setdefault("live_cache", {})
     for r in got:
         hist["_scan_live"][r["code"]] = r
+        cache[r["code"]] = r                      # 다음 10분 실행들에서도 쓰도록 저장
+    cut = iso(now() - dt.timedelta(hours=2))
+    hist["live_cache"] = {k: v for k, v in cache.items() if v.get("t", "") >= cut}
     return len(got)
 
 
@@ -1586,7 +1590,15 @@ def recommend_memes(cfg, hist):
     kw = hist.get("keywords") or {}
     cands = kw.get("cands") or {}
     board = {b["code"]: b for b in (hist.get("discovery") or {}).get("board", [])}
-    live = hist.get("_scan_live") or {}
+    # 실시간 값: 이번 실행의 스캔·상위 장소 조회 + 직전 30분 조회 저장분(1시간 이내) 중 더 최신 것
+    live = {}
+    fresh_live = iso(now() - dt.timedelta(hours=1))
+    for k, v in (hist.get("live_cache") or {}).items():
+        if v.get("t", "") >= fresh_live:
+            live[k] = v
+    for k, v in (hist.get("_scan_live") or {}).items():
+        if k not in live or v.get("t", "") >= live[k].get("t", ""):
+            live[k] = v
     scan_rows = load_json("scan.json", {"rows": []}).get("rows", [])
     by_code = {}
     for r in scan_rows:
@@ -1699,6 +1711,16 @@ def recommend_memes(cfg, hist):
                  "spd": lv.get("_spd"), "pm25": lv.get("_pm25")}
         elif code:
             b = board.get(code)
+        # 이미 추적 중인 장소는 10분마다 받는 도시데이터가 3시간 스캔보다 최신이므로 그 값을 쓴다
+        tid0 = tracked.get(code) or tracked.get(pl.get("name", ""))
+        lo = last_seoul.get(tid0) if tid0 else None
+        if code and lo and lo.get("pop") is not None and (not b or lo["t"] > (b.get("t") or "")):
+            ag = lo.get("age") or {}
+            b = {"pop": lo["pop"], "cg": lo.get("cg"), "t": lo["t"], "y": (ag.get("10") or 0) + (ag.get("20") or 0),
+                 "wind": lo.get("wind"), "spd": lo.get("spd"), "pm25": lo.get("pm25")}
+            live = dict(live)
+            live[code] = {"pop": b["pop"], "cg": b["cg"], "t": b["t"], "y": b["y"],
+                          "_wind": b["wind"], "_spd": b["spd"], "_pm25": b["pm25"]}
         if code:
             c += 12
             reasons.append(f"서울 실시간 인구 자료가 있는 장소 ({cd.get('name')})")

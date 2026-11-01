@@ -348,8 +348,6 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
   <!-- 시간 × 장소 -->
   <section class="view" id="v-hours">
     <div class="row">
-      <label class="small" for="hourSet">장소</label>
-      <select id="hourSet"><option value="recs">밈 추천 장소 (순위순, 추천과 함께 10분마다 갱신)</option><option value="tracked">추적 장소 (고정·발굴)</option></select>
       <label class="small" for="hourVar">지표</label>
       <select id="hourVar">
         <option value="pop">생활인구 (명)</option>
@@ -1439,8 +1437,7 @@ function hourValue(v, place){
 function renderHours(){
   const tb = $("#hourTable");
   if (!DATA){ tb.innerHTML=""; return; }
-  ui.hourSet = ui.hourSet || "recs"; $("#hourSet").value = ui.hourSet;
-  if (ui.hourSet==="recs") return renderHoursRecs(tb);
+  return renderHoursRecs(tb);      // 밈 추천 장소만 표시 (추적 장소 표는 없앰)
   $("#hourNote").textContent = "추적 장소의 선택 기간 동안 시간대별 평균입니다. 칸의 진하기는 같은 표 안에서의 상대 크기입니다. 괄호 안 숫자는 평균에 쓰인 관측 수입니다.";
   const [x0,x1] = windowRange();
   const places = DATA.places||[];
@@ -1728,7 +1725,6 @@ $("#groupSel").onchange = e=>{ ui.group=e.target.value; saveUi(); renderAges(); 
 $("#hourVar").onchange = e=>{ ui.hourVar=e.target.value; saveUi(); renderHours(); };
 $("#trendPlaceOnly").onchange = ()=>renderDiscover();
 $("#dayType").onchange = e=>{ ui.dayType=e.target.value; saveUi(); renderHours(); };
-$("#hourSet").onchange = e=>{ ui.hourSet=e.target.value; saveUi(); renderHours(); };
 $("#refreshBtn").onclick = ()=>{ if (DATA&&DATA.demo) return; loadData(true); };
 $("#saveSettings").onclick = ()=>{ cfg.embedKey=$("#embedInput").value.trim(); cfg.live=$("#liveInput").value.trim(); cfg.src=$("#srcInput").value.trim()||DEFAULT_SRC; cfg.interval=+$("#intervalSel").value; store.set("cfg",cfg); DATA=null; loadData(true); renderAll(); };
 $("#openFileBtn").onclick = ()=>$("#dataFile").click();

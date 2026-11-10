@@ -447,7 +447,7 @@ const SOURCES = [
   {id:"youtube",   name:"유튜브", sub:"최근 7일 업로드·조회수", cycle:380, unit:"fetch"},
   {id:"instagram", name:"인스타그램 해시태그", sub:"공식 API 표본, 1시간", cycle:200, unit:"fetch"},
   {id:"gplaces",   name:"구글 지도 리뷰", sub:"장소별 누적 리뷰 수, 하루 1회", cycle:1500, unit:"fetch"},
-  {id:"kakao",     name:"카카오 장소 검색", sub:"장소 검색 결과, 하루 1회", cycle:1500, unit:"fetch"},
+  {id:"kakao",     name:"카카오 장소 검색", sub:"키워드 → 장소 찾기, 3시간마다", cycle:200, unit:"fetch"},
   {id:"kw",        name:"밈 키워드 발굴", sub:"키워드 → 장소 자동 추리기", cycle:200, unit:"fetch"},
   {id:"scan",      name:"주요 장소 전체 스캔", sub:"밈 후보 자동 발굴", cycle:200, unit:"min"},
   {id:"trends",    name:"구글 급상승 검색어", sub:"한국, 인증키 불필요", cycle:60, unit:"min"},
@@ -672,7 +672,7 @@ function renderLanes(){
   let fresh=0, used=0; const extra=[];
   for (const s of SOURCES){
     const hidden = (s.id==="x" && !st.x && !(DATA&&DATA.x&&Object.keys(DATA.x).length)) ||
-                   (["youtube","instagram","gplaces","kakao"].includes(s.id) && !st[s.id]);
+                   (["youtube","instagram","gplaces"].includes(s.id) && !st[s.id]);
     if (hidden) { extra.push(s); continue; }
     used++;
     const last = latestFor(s.id);

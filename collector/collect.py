@@ -672,11 +672,19 @@ def mine_rising_terms(cfg, keys, kw):
     kw["baseline_runs"] = len(base_runs)
     return rising
 
+KAKAO_USE = {"ok": 0, "err": ""}    # 이번 실행에서 카카오 검색이 실제로 성공했는지 (상태 줄 표시용)
+
+
 def kakao_local_search(keys, term, size=5):
     url = ("https://dapi.kakao.com/v2/local/search/keyword.json?"
            + urllib.parse.urlencode({"query": term, "size": size}))
     headers = {"Authorization": f"KakaoAK {keys['KAKAO_REST_API_KEY']}"}
-    j = json.loads(http(url, headers=headers))
+    try:
+        j = json.loads(http(url, headers=headers))
+    except Exception as e:
+        KAKAO_USE["err"] = str(e)
+        raise
+    KAKAO_USE["ok"] += 1
     return j.get("documents", [])
 
 def fetch_kakao(cfg, keys, hist):
@@ -939,6 +947,12 @@ def keyword_discovery(cfg, keys, hist):
         p["since"] = prev.get(p["id"]) or iso(now())
     hist["kw_places"] = out
     kw["ranAt"] = iso(now())
+    # 이번 발굴에서 카카오를 한 번도 안 불렀으면(모두 캐시) 연결만 확인한다. 결과는 쓰지 않음.
+    if keys.get("KAKAO_REST_API_KEY") and not KAKAO_USE["ok"]:
+        try:
+            kakao_local_search(keys, out[0]["label"] if out else "서울시청", size=1)
+        except Exception:
+            pass
     return len(out)
 
 
@@ -1375,6 +1389,10 @@ def compute_sla(hist, cfg):
         out[src] = {"every": every, "pct": round(100 * hit / expected), "hit": hit, "expected": expected,
                     "behind": behind(hist, cfg, src), "fails": s.get("fails", 0),
                     "next": iso(slot_start(cur + 1, every, off)), "last_ok": s.get("ok")}
+    if not cfg.get("kakao_store", False) and "kw" in plan:   # 카카오는 키워드 발굴 주기에 맞춰 실시간으로 쓰인다
+        plan["kakao"] = plan["kw"]
+        if "kw" in out:
+            out["kakao"] = out["kw"]
     hist["sla"], hist["schedule"] = out, plan
 
 
@@ -2162,6 +2180,7 @@ def run_once(cfg, keys, budget_sec=None):
     hist = load_history()
     quota_init(hist, cfg)
     hist["_scan_live"] = {}
+    KAKAO_USE.update(ok=0, err="")
     d = cfg.get("discovery", {})
     kd = cfg.get("keyword_discovery", {})
     soc_need = {"youtube", "instagram", "gplaces", "x"}       # 선택 항목: 키 없으면 상태 표시 안 함
@@ -2251,7 +2270,6 @@ def run_once(cfg, keys, budget_sec=None):
     todo = []
     for src, enabled, ok, need, fn in slow:
         if not enabled:
-            hist["status"].pop(src, None)        # 꺼 둔 자료원은 '지연'으로 남기지 않는다
             continue
         if not ok:
             if src in soc_need:
@@ -2270,6 +2288,12 @@ def run_once(cfg, keys, budget_sec=None):
         attempt(src, fn)
     if deferred:
         log(f"실행 시간 예산 {budget}초를 넘어 다음 실행으로 미룸: {', '.join(deferred)}")
+    # 카카오 결과 저장(kakao_store)을 꺼 두면, 키워드 → 장소 찾기에서 실시간으로 쓴 결과로 상태를 남긴다
+    if not cfg.get("kakao_store", False) and keys.get("KAKAO_REST_API_KEY"):
+        if KAKAO_USE["ok"]:
+            set_status(hist, "kakao", True, "", KAKAO_USE["ok"])
+        elif KAKAO_USE["err"]:
+            set_status(hist, "kakao", False, KAKAO_USE["err"])
 
     # ── 3) 추천: 상위 장소 실시간 인구 갱신 → 순위 다시 계산 (API 호출 없음, 매번)
     if keys.get("SEOUL_API_KEY") and due(hist, cfg, "recs_live"):

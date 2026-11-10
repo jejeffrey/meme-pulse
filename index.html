@@ -672,7 +672,7 @@ function renderLanes(){
   let fresh=0, used=0; const extra=[];
   for (const s of SOURCES){
     const hidden = (s.id==="x" && !st.x && !(DATA&&DATA.x&&Object.keys(DATA.x).length)) ||
-                   (["youtube","instagram","gplaces"].includes(s.id) && !st[s.id]);
+                   (["youtube","instagram","gplaces","kakao"].includes(s.id) && !st[s.id]);
     if (hidden) { extra.push(s); continue; }
     used++;
     const last = latestFor(s.id);

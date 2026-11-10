@@ -2251,6 +2251,7 @@ def run_once(cfg, keys, budget_sec=None):
     todo = []
     for src, enabled, ok, need, fn in slow:
         if not enabled:
+            hist["status"].pop(src, None)        # 꺼 둔 자료원은 '지연'으로 남기지 않는다
             continue
         if not ok:
             if src in soc_need:

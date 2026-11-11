@@ -905,6 +905,18 @@ CTX_BORING = set("""공원 시장 한강 한강공원 서울숲 피크닉 돗자
 무료 운영시간 휴무 근황 풍경 출사 사진찍기 포토존 포토스팟 뷰 서울나들이 서울여행 서울데이트 서울가볼만한곳 서울명소 kr 2026 2025""".split())
 
 
+CTX_JUNK = set("""아파트 재건축 재개발 신축 구축 전세 월세 매매 분양 청약 시세 부동산 입주 임장 택지 신규택지 오피스텔 빌라 단지 매물 실거래
+일정 관람 정보 안내 예약 시간표 입장 운영 주차장 근처 가는법 수도권 서울시 합격 공무원 채용 이유 성공사례 플래그십 브런치 라이딩
+경매 공매 점심 저녁 방배 서초 강남 강북 강서 강동 송파 마포 용산 종로 성동 중랑 노원 도봉 은평 관악 동작 영등포 양천 구로 금천""".split())
+CTX_PLACE = re.compile(r"(동|구|역|시|군|읍|면|로|대로|입구)$")
+
+
+def ctx_ok(w):
+    """'왜 떴는지'의 근거가 될 만한 말인가: 부동산·안내 문구, 동네·역 이름 같은 말은 뺀다."""
+    return (w not in CTX_JUNK and w not in CTX_BORING and w not in AREA_STEMS and not CTX_PLACE.search(w)
+            and not re.fullmatch(r"[A-Za-z]{1,2}|\d+.*", w))
+
+
 CTX_PARTICLE = re.compile(r"(에서|으로|까지|부터|에게|처럼|은|는|을|를|의|에|도|와|과)$")
 
 
@@ -915,9 +927,12 @@ def ctx_words(title):
         if len(w) >= 3:
             w2 = CTX_PARTICLE.sub("", w)
             w = w2 if len(w2) >= 2 else w
-        if 2 <= len(w) <= 12 and w not in STOP and w not in CTX_BORING and not MONTH.match(w):
+        if 2 <= len(w) <= 12 and w not in STOP and not MONTH.match(w) and ctx_ok(w):
             out.add(w)
     return out
+
+
+PLACE_NAMES_CACHE = set()     # 다른 명소 이름(경복궁·광화문 등)은 '화제'가 아니라 이웃 장소라 근거에서 뺀다
 
 
 def outdoor_q(name):
@@ -940,6 +955,7 @@ def watch_outdoor(cfg, keys, hist):
     today = now().strftime("%Y-%m-%d")
     todo = []
     for code, name in citydata_names(hist):
+        PLACE_NAMES_CACHE.update(x for x in re.split(r"[·()\s]", name) if len(x) >= 2)
         q = outdoor_q(name)
         if not q:
             continue
@@ -994,9 +1010,10 @@ def place_hooks(e):
     day, cnt, n = e["hist"][-1]
     prev = e["hist"][:-1]
     out = []
+    names = {_ns(x) for x in OUTDOOR_Q.values()} | {_ns(x) for x in PLACE_NAMES_CACHE}
     for w, c in sorted(cnt.items(), key=lambda x: -x[1]):
         share = c / max(1, n)
-        if c < 5 or share < 0.06:
+        if c < 5 or share < 0.06 or not ctx_ok(w) or _ns(w) in names:
             continue
         base = sorted((h[1].get(w, 0) / max(1, h[2])) for h in prev)
         med = base[len(base) // 2] if len(base) >= 2 else None      # 평소 기준은 이틀 이상 쌓인 뒤부터
@@ -1974,7 +1991,8 @@ def recommend_memes(cfg, hist):
         rise = ri["rise_eff"]
         g["terms"].append((term, rise or 0))
         for w, n in e.get("ctx") or []:
-            g["ctx"][w] += n
+            if ctx_ok(w) and _ns(w) not in {_ns(x) for x in PLACE_NAMES_CACHE}:
+                g["ctx"][w] += n
         na = e.get("name_act")
         if na and (g["name_act"] is None or (na.get("r3") or 0) > (g["name_act"].get("r3") or 0)):
             g["name_act"] = na
@@ -1991,6 +2009,10 @@ def recommend_memes(cfg, hist):
 
     # ── 야외 명소 위주로 다시 묶기: 가게·팝업 밈이라도 시장·공원 안이면 그 명소로, 실내·거리·관광특구는 '기타'로
     pw = hist.get("place_watch") or {}
+    for _, n in name_to_code_items(board):
+        PLACE_NAMES_CACHE.update(x for x in re.split(r"[·()\s]", n) if len(x) >= 2)
+    for e in pw.values():
+        e["hooks"] = place_hooks(e)
     outdoor = {c: outdoor_q(n) for c, n in name_to_code_items(board) if outdoor_q(n)}
     regroup, others = {}, []
     for key, g in groups.items():
@@ -2265,6 +2287,7 @@ def recommend_memes(cfg, hist):
                               -sum(ch["ok"] for ch in x["field"]["checks"]), -x["score"]))
     keep = [x for x in items if x["score"] >= rc.get("min_score", 25)][:rc.get("top", 10)]
     for x in check:
+        x["ctx"] = [w for w in x["ctx"] if ctx_ok(w) and _ns(w) not in {_ns(y) for y in PLACE_NAMES_CACHE}]
         lv = live.get(x["key"])
         if lv:
             med, _, _ = baseline_of(by_code.get(x["key"], []), lv["t"])

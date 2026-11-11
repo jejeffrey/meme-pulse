@@ -594,7 +594,7 @@ def meme_gate(term, place, source, trend_related=True, names=()):
     stems = place_stems(place, names)
     area = [s for s in stems if any(tok.startswith(s) for tok in toks)]
     if area:
-        only_area = all(any(tok == s or tok == s + "동" for s in stems) for tok in toks)
+        only_area = all(any(tok in (s, s + "동", s + "역", s + "거리") for s in stems) for tok in toks)
         return True, "", "지역명" if only_area else "장소 밈"
     season = any(any(tok.startswith(w) for w in SEASON_MEME) for tok in toks)
     if season:
@@ -604,6 +604,10 @@ def meme_gate(term, place, source, trend_related=True, names=()):
     name = _ns(place.get("name", ""))
     name_hit = len(t) >= 3 and (t in name or any(len(w) >= 3 and w in t for w in re.split(r"\s+", place.get("name", ""))))
     if name_hit and any(c in cat for c in CAT_FRIENDLY):
+        # 한 단어 키워드가 가게 이름의 '일부'와만 겹치면 우연 (예: '매운맛'→'매운맛의유혹', '먹으러'→'요집가먹으러')
+        core = _ns(re.sub(r"\s+\S+점$", "", place.get("name", "")))
+        if len(toks) == 1 and t not in (name, core):
+            return False, "흔한 말이 가게 이름 일부와 겹침 (그 가게의 밈이라는 근거 없음)", ""
         amb = place.get("amb")
         if amb is not None and amb >= 3:
             return False, f"같은 이름의 가게가 서울에 {amb}곳 (특정 불가)", ""
@@ -742,9 +746,15 @@ def match_citydata(text, names):
     return {"code": best[0], "name": best[1], "_len": best[2]} if best else None
 
 
-def resolve_place(keys, term, names):
-    """키워드 → 장소. 서울 주요 장소 이름과 먼저 맞춰 보고, 없으면 네이버 지역 검색으로 찾는다."""
+def resolve_place(keys, term, names, area_first=False):
+    """키워드 → 장소. 서울 주요 장소 이름과 먼저 맞춰 보고, 없으면 카카오 지역 검색으로 찾는다.
+    area_first: 직접 넣은 키워드(예: '성수 팝업')는 특정 가게가 아니라 동네(주요 장소)로 잇는다.
+    (지역 검색 첫 결과는 이미 끝난 팝업일 수 있음)"""
     cd = match_citydata(term, names)
+    if cd and area_first:
+        cd.pop("_len", None)
+        return {"name": cd["name"], "citydata": cd, "gu": "", "addr": "", "category": "서울 주요 장소",
+                "via": "주요 장소 이름(직접 입력)"}
     partial = None
     # 키워드가 거의 장소 이름 그 자체일 때만 바로 연결 (예: '서울숲' O, '망원 두바이쿠키' X → 지역 검색으로)
     if cd and cd.pop("_len", 0) < len(term.replace(" ", "")) * 0.6:
@@ -792,13 +802,56 @@ def blog_rise(keys, term):
         except Exception:
             pass
     if not ages:
-        return {"r3": 0, "rp": 0, "rise": 0}
+        return {"r3": 0, "rp": 0, "rise": 0, "last_age": None, "ctx": []}
     n3 = sum(1 for a in ages if a < 3)
     nprev = sum(1 for a in ages if 3 <= a < 10)
     full = len(ages) >= 100 and max(ages) < 3            # 100개가 모두 3일 안이면 매우 활발
     r3, rp = n3 / 3, nprev / 7
     rise = 10.0 if full else round(r3 / (rp + 0.5), 2)
-    return {"r3": round(r3, 1), "rp": round(rp, 1), "rise": rise, "saturated": full}
+    return {"r3": round(r3, 1), "rp": round(rp, 1), "rise": rise, "saturated": full,
+            "last_age": min(ages), "ctx": title_context(items, term)}
+
+
+def title_context(items, term, top=6):
+    """같은 글 제목에 함께 나온 말 (왜 떴는지 보여 주기용). 제목은 저장하지 않고 단어 개수만 남긴다."""
+    own = {_ns(w) for w in term.split()} | {_ns(term)}
+    cnt = Counter()
+    for it in items:
+        ws = {w for w in terms_of(it.get("title"), set()) if " " not in w}
+        ws = {w for w in ws if _ns(w) not in own and not any(_ns(w).startswith(o) or o.startswith(_ns(w)) for o in own)
+}
+        cnt.update(ws)
+    n = max(1, len(items))
+    return [[w, c] for w, c in cnt.most_common(top * 2) if c >= max(3, n * 0.04)][:top]
+
+
+def datalab_rise(keys, terms):
+    """네이버 데이터랩 일별 검색량으로 급상승을 잰다: 최근 3일 평균 ÷ 그 전 7일 평균 (어제까지 자료).
+    같은 요청 안에서 상대값이라도, 한 키워드의 '최근 ÷ 이전' 비율은 그대로 의미가 있다."""
+    out = {}
+    end = now().date() - dt.timedelta(days=1)
+    start = end - dt.timedelta(days=13)
+    for i in range(0, len(terms), 5):
+        chunk = terms[i:i + 5]
+        body = {"startDate": start.isoformat(), "endDate": end.isoformat(), "timeUnit": "date",
+                "keywordGroups": [{"groupName": t, "keywords": list(dict.fromkeys([t, _ns(t)]))} for t in chunk]}
+        txt = http("https://naverapihub.apigw.ntruss.com/search-trend/v1/search",
+                   data=json.dumps(body).encode("utf-8"),
+                   headers={"X-NCP-APIGW-API-KEY-ID": keys["NAVER_CLIENT_ID"],
+                            "X-NCP-APIGW-API-KEY": keys["NAVER_CLIENT_SECRET"], "Content-Type": "application/json"})
+        j = json.loads(txt)
+        for r in j.get("results", []):
+            by_day = {d["period"]: d["ratio"] for d in r.get("data", [])}
+            days = [(end - dt.timedelta(days=k)).isoformat() for k in range(10)]
+            vals = [by_day.get(d, 0.0) for d in days]          # 자료 없는 날 = 검색량 아주 적음(0)
+            recent, prev = sum(vals[:3]) / 3, sum(vals[3:10]) / 7
+            if recent == 0 and prev == 0:
+                out[r["title"]] = None                         # 검색량이 너무 적어 판정 불가
+            else:
+                out[r["title"]] = {"rise": round(min(10.0, recent / prev), 2) if prev > 0 else 10.0,
+                                   "recent": round(recent, 2), "prev": round(prev, 2)}
+        time.sleep(0.15)
+    return out
 
 
 def roadside_for(cfg, hist, gu):
@@ -841,6 +894,32 @@ def ensure_poi_geo(keys, hist, limit=40):
     return len(todo)
 
 
+def check_name_activity(keys, e):
+    """가게·팝업으로 풀렸으면 그 '가게 이름'으로도 최근 글이 있는지 하루 한 번 확인 (끝난 팝업 거르기)."""
+    pl = e.get("place") or {}
+    today = now().strftime("%Y-%m-%d")
+    if not pl.get("url") or (e.get("name_act") or {}).get("day") == today:
+        return
+    q = pl["name"]
+    if _ns(q) == _ns(e["term"]):                       # 키워드와 같은 이름이면 동네 이름을 붙여 그 가게 글만 센다
+        q = f"{q} {pl.get('dong') or (pl.get('gu') or '').rstrip('구')}".strip()
+    try:
+        b = blog_rise(keys, q)
+        e["name_act"] = {"day": today, "name": q, "r3": b["r3"], "last_age": b.get("last_age")}
+    except Exception:
+        pass
+
+
+def rise_info(e):
+    """후보 하나의 급상승 배율과 근거. 데이터랩 > 블로그(포화되지 않았을 때) > 판정 보류(None)."""
+    dl = e.get("dl") or {}
+    if dl.get("ok") and dl.get("rise") is not None:
+        return {"rise_eff": float(dl["rise"]), "rise_src": "데이터랩 검색량"}
+    if e.get("rise") is not None and not e.get("saturated"):
+        return {"rise_eff": float(e.get("rise") or 0), "rise_src": "블로그 글 수"}
+    return {"rise_eff": None, "rise_src": "판정 보류 (글이 너무 많아 블로그로는 구분 불가)" if e.get("saturated") else ""}
+
+
 def keyword_discovery(cfg, keys, hist):
     k = cfg.get("keyword_discovery", {})
     kw = hist.setdefault("keywords", {})
@@ -850,6 +929,7 @@ def keyword_discovery(cfg, keys, hist):
     ev_re = re.compile("|".join(map(re.escape, k.get("event_words", []))) or "$^")
     cache = kw.setdefault("resolved", {})
     cands = kw.setdefault("cands", {})
+    dl_todo = []
 
     # ① 밈 키워드 모으기: 직접 넣은 키워드 + 블로그·유튜브 제목 급상승어 + 구글 급상승 검색어
     pinned_kw = {w for g in cfg["keyword_groups"] for w in g["keywords"]}   # 고정 장소 검색어는 발굴 대상에서 뺀다
@@ -866,9 +946,12 @@ def keyword_discovery(cfg, keys, hist):
     resolved_now, budget = 0, k.get("resolve_max", 30)
     for term, src in pool:
         c = cache.get(term)
+        seed = src == "직접 입력"
+        if seed and c and not (c.get("place") or {}).get("via", "").endswith("(직접 입력)"):
+            c = None                                  # 예전 방식(가게로 풀린 것)은 다시 푼다
         if (not c or c["at"] < iso(now() - dt.timedelta(days=7))) and resolved_now < budget:
             try:
-                c = {"at": iso(now()), "place": resolve_place(keys, term, names)}
+                c = {"at": iso(now()), "place": resolve_place(keys, term, names, area_first=seed)}
             except Exception as e:
                 log(f"장소 찾기 실패 '{term}': {e}")
                 continue
@@ -890,11 +973,50 @@ def keyword_discovery(cfg, keys, hist):
             e.update(blog_rise(keys, term))
         except Exception:
             pass
+        check_name_activity(keys, e)
         e["ev"] = bool(ev_re.search(term + " " + pl.get("category", "") + " " + pl.get("name", "")))
-        hot = e.get("rise", 0) >= k.get("score_threshold", 2.0) or src == "직접 입력"
+        dl_todo.append(term)
+        time.sleep(0.1)
+    # 이번에 다시 안 잡혔어도 추천에 남아 있는 후보(최근 3일)는 하루 한 번 다시 확인한다
+    #  (함께 나온 말·가게 이름 최근 글·검색량). 포착 횟수(hits)는 늘리지 않는다.
+    seen_now = set(dl_todo)
+    recent3 = iso(now() - dt.timedelta(days=(cfg.get("recommend") or {}).get("max_age_days", 3)))
+    refresh = [e for t, e in cands.items() if t not in seen_now and e.get("last_seen", "") >= recent3
+               and (e.get("gate") or {}).get("ok") and not e.get("ev")
+               and (e.get("dl") or {}).get("day") != now().strftime("%Y-%m-%d")][:k.get("refresh_max", 40)]
+    for e in refresh:
+        try:
+            ctx_old = e.get("ctx")
+            e.update(blog_rise(keys, e["term"]))
+            if not e.get("ctx"):
+                e["ctx"] = ctx_old or []
+        except Exception:
+            pass
+        check_name_activity(keys, e)
+        time.sleep(0.1)
+    refresh_terms = [e["term"] for e in refresh]
+
+    # ③ 급상승 판정: 네이버 데이터랩 일별 검색량 (키워드마다 하루 한 번). 블로그 최신 100개 방식은
+    #    인기 있는 말이 모두 '매우 활발(10배)'로 나와 구분이 안 되므로, 데이터랩이 없을 때만 보조로 쓴다.
+    today = now().strftime("%Y-%m-%d")
+    need = [t for t in dict.fromkeys(dl_todo + refresh_terms) if (cands[t].get("dl") or {}).get("day") != today]
+    if need and k.get("use_datalab", True):
+        try:
+            res = datalab_rise(keys, need[:k.get("datalab_max", 30)])
+            for t, v in res.items():
+                if t in cands:
+                    cands[t]["dl"] = dict(v or {}, day=today, ok=v is not None)
+        except Exception as ex:
+            log(f"데이터랩 급상승 판정 실패: {ex}")
+    for t in refresh_terms:
+        cands[t].update(rise_info(cands[t]))
+    for t in dict.fromkeys(dl_todo):
+        e = cands[t]
+        e.update(rise_info(e))
+        hot = (e["rise_eff"] or 0) >= k.get("score_threshold", 2.0) or e.get("source") == "직접 입력"
         if hot:
             e["hits"] = [h for h in e["hits"] if h >= iso(now() - dt.timedelta(days=7))] + [iso(now())]
-        time.sleep(0.1)
+
     # 14일 넘게 안 보인 후보 정리, 캐시도 30일 넘은 것 삭제
     kw["cands"] = {t: e for t, e in cands.items() if e.get("last_seen", "") >= iso(now() - dt.timedelta(days=14))}
     kw["resolved"] = {t: c for t, c in cache.items() if c["at"] >= iso(now() - dt.timedelta(days=30))}
@@ -913,12 +1035,12 @@ def keyword_discovery(cfg, keys, hist):
             e["gate"] = {"ok": ok, "why": why, "kind": kind}
         if not e["gate"]["ok"] or e.get("ev") or not e["hits"]:
             continue
-        if e["source"] != "직접 입력" and len(e["hits"]) < k.get("min_hits", 2) and e.get("rise", 0) < k.get("instant_rise", 5):
+        if e["source"] != "직접 입력" and len(e["hits"]) < k.get("min_hits", 2) and (rise_info(e)["rise_eff"] or 0) < k.get("instant_rise", 5):
             continue
         key = (e["place"].get("citydata") or {}).get("code") or e["place"]["name"]
         g = by_place.setdefault(key, {"place": e["place"], "terms": [], "score": 0, "seed": False, "pop": False})
         g["terms"].append(e["term"])
-        g["score"] = max(g["score"], e.get("rise", 0))
+        g["score"] = max(g["score"], rise_info(e)["rise_eff"] or 0)
         g["seed"] |= e["source"] == "직접 입력"
         g["pop"] |= e["pop_confirmed"]
     fixed = {p.get("citydata_area") for p in cfg["places"]} | {p["label"] for p in cfg["places"]}
@@ -1721,30 +1843,54 @@ def recommend_memes(cfg, hist):
             continue
         cd = pl.get("citydata") or {}
         key = cd.get("code") or pl.get("name") or term
-        g = groups.setdefault(key, {"place": pl, "terms": [], "kinds": set(), "sources": set(), "rise": 0.0,
+        g = groups.setdefault(key, {"place": pl, "terms": [], "kinds": set(), "sources": set(), "rise": None,
                                     "hits": 0, "r3": 0.0, "rp": 0.0, "sat": False, "first": e.get("first", iso(now())),
-                                    "seed": False})
+                                    "seed": False, "rise_src": "", "ctx": Counter(), "name_act": None})
         if pl.get("lat") and not g["place"].get("lat"):
             g["place"] = pl
-        rise = 10.0 if e.get("saturated") else float(e.get("rise") or 0)
-        g["terms"].append((term, rise))
+        ri = rise_info(e)
+        rise = ri["rise_eff"]
+        g["terms"].append((term, rise or 0))
+        for w, n in e.get("ctx") or []:
+            g["ctx"][w] += n
+        na = e.get("name_act")
+        if na and (g["name_act"] is None or (na.get("r3") or 0) > (g["name_act"].get("r3") or 0)):
+            g["name_act"] = na
         g["kinds"].add(kind)
         g["sources"].add(src)
         g["seed"] |= src == "직접 입력"
-        if rise >= g["rise"]:
-            g["rise"], g["r3"], g["rp"] = rise, e.get("r3", 0), e.get("rp", 0)
+        if rise is not None and (g["rise"] is None or rise >= g["rise"]):
+            g["rise"], g["r3"], g["rp"], g["rise_src"] = rise, e.get("r3", 0), e.get("rp", 0), ri["rise_src"]
+        elif g["rise"] is None and not g["rise_src"]:
+            g["rise_src"] = ri["rise_src"]
         g["hits"] = max(g["hits"], len(e.get("hits", [])))
         g["sat"] |= bool(e.get("saturated"))
         g["first"] = min(g["first"], e.get("first", g["first"]))
 
-    items = []
+    items, check = [], []
+    excl = {_ns(x) for x in rc.get("field_exclude", [])}
+    conf = {_ns(x) for x in rc.get("field_confirm", [])}
     for key, g in groups.items():
         pl = g["place"]
         cd = pl.get("citydata") or {}
         code = cd.get("code")
+        names_of = {_ns(pl.get("name")), _ns(cd.get("name")), _ns(key)} | {_ns(t) for t, _ in g["terms"]}
+        if names_of & excl:
+            rejected["제외:" + key] = {"term": ", ".join(t for t, _ in g["terms"]), "why": "직접 제외 (config.json › recommend.field_exclude)",
+                                      "place": pl.get("name", ""), "source": ", ".join(sorted(g["sources"]))}
+            continue
+        ctx = [w for w, _ in g["ctx"].most_common(6)]
+        # 지역 이름만 늘어난 곳은 무엇이 밈인지 모르므로 추천 순위에서 빼고 '확인 필요'로 따로 둔다
+        if g["kinds"] == {"지역명"} and not (names_of & conf):
+            check.append({"key": key, "label": pl.get("name") or cd.get("name") or key,
+                          "terms": [t for t, _ in g["terms"]][:4], "ctx": ctx, "poi": cd.get("name"),
+                          "rise": g["rise"], "rise_src": g["rise_src"],
+                          "ratio": None})
+            continue
         reasons, warns = [], []
         # ── ① 밈 신호 (35)
-        m = min(1.0, math.log1p(g["rise"]) / math.log1p(10)) * 18 + min(1.0, g["hits"] / 4) * 7
+        rv = g["rise"] if g["rise"] is not None else 1.0       # 판정 보류는 '보합'으로 본다
+        m = min(1.0, math.log1p(max(0.0, rv)) / math.log1p(10)) * 18 + min(1.0, g["hits"] / 4) * 7
         terms = [t for t, _ in sorted(g["terms"], key=lambda x: -x[1])]
         if any(t in rising_now for t in terms):
             m += 3
@@ -1755,26 +1901,30 @@ def recommend_memes(cfg, hist):
         if len(terms) >= 2:
             m += 4
             reasons.append(f"같은 장소를 가리키는 밈 키워드 {len(terms)}개")
-        if g["kinds"] == {"지역명"}:
-            m -= 6
-            warns.append("지역 이름만 늘어남 — 구체적인 밈이 무엇인지 확인 필요")
         if g["seed"]:
             m += 2
+        na = g["name_act"]
+        stale_name = bool(na and ((na.get("r3") or 0) < 0.7 or (na.get("last_age") is not None and na["last_age"] > 7)))
+        if stale_name:
+            m -= 10
+            warns.append(f"‘{na.get('name')}’ 이름으로 최근 3일 블로그 글이 거의 없음 — 이미 끝났거나 식은 곳일 수 있음")
         m = _clamp(m, 0, 35)
-        if g["sat"]:
-            stage = "정점 부근"
-        elif g["rise"] >= 3 and g["rp"] < 5:
-            stage = "초기 확산"
+        if g["rise"] is None:
+            stage = "판정 보류"
+        elif g["rise"] >= 3:
+            stage = "급상승"
         elif g["rise"] >= 1.5:
             stage = "확산 중"
-        elif g["rise"] < 1:
+        elif g["rise"] < 0.8:
             stage = "식는 중"
         else:
             stage = "보합"
-        if stage == "초기 확산":
-            reasons.append("초기 확산 단계 — 정점 ‘전’ 기준선을 지금 잡을 수 있음")
-        elif stage == "식는 중":
-            warns.append("블로그 글이 줄어드는 중 — 정점이 지났을 수 있음")
+        if stage == "급상승":
+            reasons.append(f"{g['rise_src']} 최근 3일이 그 전 7일보다 {g['rise']:.1f}배 — 정점 ‘전’ 기준선을 지금 잡을 수 있음")
+        elif stage == "확산 중":
+            reasons.append(f"{g['rise_src']} {g['rise']:.1f}배로 늘어나는 중")
+        if stage == "식는 중":
+            warns.append(f"{g['rise_src'] or '검색량'}이 줄어드는 중 — 정점이 지났을 수 있음")
 
         # ── ② 인구 측정 가능성 (35)
         c, crowd = 0.0, {}
@@ -1880,6 +2030,36 @@ def recommend_memes(cfg, hist):
             p += 3
             reasons.append("이미 추적 중 — 전·중·후 비교용 기록이 쌓이는 중")
         total = round(m + c + a + p)
+        # ── 현장 측정 후보: 네 가지를 모두 만족해야 표시
+        peak7 = None
+        if code:
+            cut7 = iso(now() - dt.timedelta(days=7))
+            rows7 = [r for r in by_code.get(code, []) if r["t"] >= cut7]
+            for r in rows7:
+                med, _, _ = baseline_of(by_code.get(code, []), r["t"])
+                if med:
+                    q = r["pop"] / med
+                    peak7 = q if peak7 is None else max(peak7, q)
+        ratio_now = (crowd or {}).get("ratio")
+        min_r = rc.get("field_min_ratio", 1.3)
+        has_u = air.get("pm25_u") is not None or air.get("no2_u") is not None
+        has_r = air.get("pm25_r") is not None or air.get("no2_r") is not None
+        checks = [
+            {"k": "밈이 구체적", "ok": True, "why": "가게·장소 이름이나 계절 밈으로 특정됨" if g["kinds"] - {"직접 입력"} else "직접 넣은 키워드"},
+            {"k": "지금도 활발", "ok": not stale_name and stage != "식는 중" and not (pl.get("url") and not na),
+             "why": ("최근 글이 거의 없음" if stale_name else "검색량이 줄어드는 중" if stage == "식는 중"
+                     else "가게 이름으로 최근 글을 아직 확인 전 (다음 발굴 때 확인)" if pl.get("url") and not na
+                     else f"{g['rise_src']} {g['rise']:.1f}배" if g["rise"] is not None else "글이 계속 많이 올라옴")},
+            {"k": "인파가 몰림", "ok": bool(code) and ((ratio_now or 0) >= min_r or (peak7 or 0) >= min_r),
+             "why": ("서울 실시간 인구 자료 없음" if not code else
+                     f"지금 {ratio_now:.2f}배, 최근 7일 최고 {peak7:.2f}배" if ratio_now and peak7 else
+                     f"지금 {ratio_now:.2f}배" if ratio_now else f"최근 7일 최고 {peak7:.2f}배" if peak7 else "평소 기준선 부족")},
+            {"k": "측정소 짝", "ok": has_u and has_r,
+             "why": (f"{urban}·{road}" if has_u and has_r else "도로변 측정소 값 없음" if has_u else "도시대기 값 없음")},
+        ]
+        confirmed = bool(names_of & conf)
+        field = {"ok": confirmed or all(x["ok"] for x in checks), "confirmed": confirmed, "checks": checks,
+                 "peak7": round(peak7, 2) if peak7 else None}
         gp = gpl.get(tid) or gpl.get("rec:" + key) or {}
         items.append({
             "key": key, "label": pl.get("name") or cd.get("name") or key, "terms": terms[:6],
@@ -1890,18 +2070,29 @@ def recommend_memes(cfg, hist):
             "kakao": pl.get("url", ""), "poi": {"code": code, "name": cd.get("name")} if code else None,
             "tracked_id": tid, "score": total,
             "parts": {"meme": round(m), "crowd": round(c), "air": round(a), "prac": p},
-            "stage": stage, "reasons": reasons, "warnings": warns,
-            "meme": {"rise": round(g["rise"], 2), "r3": g["r3"], "rp": g["rp"], "hits": g["hits"], "saturated": g["sat"],
-                     "first": g["first"]},
+            "stage": stage, "reasons": reasons, "warnings": warns, "field": field, "ctx": ctx,
+            "meme": {"rise": round(g["rise"], 2) if g["rise"] is not None else None, "src": g["rise_src"],
+                     "r3": g["r3"], "rp": g["rp"], "hits": g["hits"], "saturated": g["sat"],
+                     "first": g["first"], "name_act": g["name_act"]},
             "crowd": crowd, "air": air, "windows": win,
             "gmaps": {"uri": gp.get("uri"), "rating": gp.get("rating"), "reviews": gp.get("reviews")} if gp else None,
         })
-    items.sort(key=lambda x: -x["score"])
+    # 현장 측정 후보(직접 확정 포함)를 먼저, 그 안에서 점수 순
+    items.sort(key=lambda x: (-x["field"]["confirmed"], -x["field"]["ok"],
+                              -sum(ch["ok"] for ch in x["field"]["checks"]), -x["score"]))
     keep = [x for x in items if x["score"] >= rc.get("min_score", 25)][:rc.get("top", 10)]
+    for x in check:
+        lv = live.get(x["key"])
+        if lv:
+            med, _, _ = baseline_of(by_code.get(x["key"], []), lv["t"])
+            x["ratio"] = round(lv["pop"] / med, 2) if med else None
+        elif board.get(x["key"]):
+            x["ratio"] = board[x["key"]].get("ratio")
     since = iso(now() - dt.timedelta(days=(cfg.get("discovery") or {}).get("baseline_days", 28)))
     for x in keep:                              # ‘시간 × 장소’ 표용: 추천이 바뀔 때마다(10분) 함께 다시 계산
         x["hours"] = rec_hour_profiles(hist, x, by_code.get((x.get("poi") or {}).get("code"), []), since)
     hist["recs"] = {"at": iso(now()), "items": keep, "considered": len(cands), "grouped": len(items),
+                    "check": check[:15], "field_n": sum(1 for x in keep if x["field"]["ok"]),
                     "rejected": balanced_rejects(rejected.values()),
                     "weights": {"meme": 35, "crowd": 35, "air": 20, "prac": 10}}
     return len(keep)

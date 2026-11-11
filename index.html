@@ -187,6 +187,11 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
 .minimap text{font-size:10px;fill:var(--muted)}
 .minimap .dot{cursor:pointer}
 .stagetag{color:var(--accent)}
+.tag.field{color:#fff;background:var(--fresh);border-color:var(--fresh)}
+.fchk{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0 2px;font-size:12.5px}
+.fchk span{white-space:nowrap} .fchk .y{color:var(--fresh)} .fchk .n{color:var(--muted)}
+.fchk .y::before{content:"✓ ";font-weight:700} .fchk .n::before{content:"✗ ";font-weight:700;color:var(--late)}
+.rec .ctx{font-size:12.5px;color:var(--muted);margin-top:4px}
 @media (max-width:900px){.recwrap{grid-template-columns:1fr}.mapcard{position:static}}
 /* 미세먼지 분포 지도 */
 :root{--pm-a:#2a78d6;--pm-b:#eb6834}
@@ -287,7 +292,7 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
   <section class="view" id="v-recs">
     <p class="note" id="recSummary" style="margin-top:0"></p>
     <div class="pipeline">
-      <span><b>밈 신호 35점</b>블로그 글 급상승 배율, 반복 포착, 제목·구글 급상승과 겹침, 같은 장소를 가리키는 키워드 수</span>
+      <span><b>밈 신호 35점</b>네이버 검색량 급상승 배율(최근 3일 ÷ 그 전 7일), 반복 포착, 제목·구글 급상승과 겹침, 같은 장소를 가리키는 키워드 수. 가게 이름으로 최근 글이 없으면 감점</span>
       <span><b>인구 측정 35점</b>서울 실시간 인구 자료가 있는 장소인가, 지금 평소보다 몰렸나, 10·20대 비율, 혼잡도</span>
       <span><b>미세먼지 측정 20점</b>도시대기·도로변 측정소 짝, 도로 속도 자료, 지금 바람(약할수록 차이가 잘 보임), 배경 농도</span>
       <span><b>현장 실용성 10점</b>사람이 가장 많은 시각을 알 수 있나, 야외에서 셀 수 있나, 이미 추적 중인가</span>
@@ -296,6 +301,11 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
       <div class="reclist" id="recList"></div>
       <aside class="mapcard" id="recMap"></aside>
     </div>
+    <details class="how" id="recCheckBox" style="margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px">
+      <summary>확인 필요: 지역 이름만 늘어난 곳 (<span id="recCheckCount">0</span>)</summary>
+      <p class="note">제목에 지역 이름만 많이 나와서, 무엇 때문에 사람이 몰리는지(행사·계절 명소·특정 가게) 알 수 없는 곳입니다. 추천 순위에서는 뺐습니다. ‘함께 나온 말’을 보고 구체적인 밈이 확인되면 config.json › recommend.field_confirm에 장소 이름을 넣으세요.</p>
+      <div class="tablewrap"><table id="recCheck"></table></div>
+    </details>
     <div id="pmCompare" style="margin-top:18px"></div>
     <details class="how" style="margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px">
       <summary>추천에서 뺀 키워드와 이유 (<span id="rejCount">0</span>)</summary>
@@ -310,7 +320,7 @@ textarea{width:100%;min-height:110px;background:var(--surface);border:1px solid 
     <div class="pipeline">
       <span><b>① 밈 키워드 모으기</b>블로그·유튜브 제목 급상승어, 구글 급상승 검색어, 직접 넣은 키워드</span>
       <span><b>② 장소로 풀기</b>서울 주요 장소 이름 또는 네이버 지역 검색</span>
-      <span><b>③ 급상승 확인</b>최근 3일 블로그 글이 그 전보다 늘었나</span>
+      <span><b>③ 급상승 확인</b>네이버 검색량(데이터랩) 최근 3일이 그 전 7일보다 늘었나. 가게로 풀렸으면 가게 이름으로도 최근 글 확인</span>
       <span><b>④ 추적</b>두 번 이상 포착되면 인구·검색·대기질을 자동으로 붙여 추적</span>
     </div>
     <h3 class="sub">지금 추적 중인 장소 밈</h3>
@@ -1024,16 +1034,24 @@ function planText(r){
                 : `사람이 가장 많은 시각은 아직 계산할 자료가 부족합니다(서울 주요 장소 스캔이 쌓이면 나타남). 현장에서 1시간 간격으로 세어 보세요.`;
   return `<div class="plan">${out.join("<br>")}${out.length?"<br>":""}${how}${st?`<br>공공 측정소: ${st} → ‘연결 보기’의 ΔNO₂·ΔPM2.5가 1차 지표`:""}</div>`;
 }
+function renderRecCheck(R){
+  const ck = R?.check||[];
+  $("#recCheckCount").textContent = String(ck.length);
+  $("#recCheck").innerHTML = `<thead><tr><th>장소</th><th>늘어난 말</th><th>함께 나온 말</th><th>지금 평소 대비</th></tr></thead><tbody>`+
+    (ck.length? ck.map(x=>`<tr><td>${esc(x.label)}</td><td>${esc((x.terms||[]).join(", "))}</td><td style="text-align:left;white-space:normal">${esc((x.ctx||[]).join(", "))||"<span class='small'>다음 발굴 때 채워짐</span>"}</td><td>${x.ratio!=null?fx(x.ratio,2)+"배":"–"}</td></tr>`).join("")
+     : `<tr><td colspan="4" class="empty">없음</td></tr>`)+"</tbody>";
+}
 function renderRecs(){
   const R = DATA?.recs; const list=$("#recList"), map=$("#recMap");
   if (!R || !(R.items||[]).length){
     $("#recSummary").innerHTML = !R ? "아직 추천 자료가 없습니다. 새 수집기(collect.py)가 한 번 돌면 채워집니다. 밈 키워드 발굴(네이버 키)과 서울 주요 장소 스캔(서울 키)이 있어야 점수가 의미 있습니다."
       : `마지막 계산 ${fmtDT(ms(R.at))}. 기준을 통과한 밈 장소가 아직 없습니다. 키워드 ${R.considered}개를 검사했습니다.`;
-    list.innerHTML=""; map.innerHTML=""; $("#rejTable").innerHTML=""; renderPmCompare(); $("#rejCount").textContent=String((R?.rejected||[]).length); return;
+    list.innerHTML=""; map.innerHTML=""; $("#rejTable").innerHTML=""; renderPmCompare(); $("#rejCount").textContent=String((R?.rejected||[]).length); renderRecCheck(R); return;
   }
   const items = R.items;
   if (!items.find(r=>r.key===ui.rec)) ui.rec = items[0].key;
-  $("#recSummary").innerHTML = `마지막 계산 <b>${fmtDT(ms(R.at))}</b> (10분마다 다시 계산, 상위 장소의 인구·바람은 실시간). 밈 키워드 ${R.considered}개 → 기준 통과 장소 ${R.grouped}곳 → 상위 <b>${items.length}</b>곳. `+
+  const fieldN = R.field_n ?? 0;
+  $("#recSummary").innerHTML = `마지막 계산 <b>${fmtDT(ms(R.at))}</b> (10분마다 다시 계산, 상위 장소의 인구·바람은 실시간). 밈 키워드 ${R.considered}개 → 기준 통과 장소 ${R.grouped}곳 → 상위 <b>${items.length}</b>곳, 그중 <b>현장 측정 후보 ${fieldN}곳</b>${fieldN?" (맨 위)":" — 지금은 네 가지 조건을 모두 만족하는 곳이 없습니다. 조건을 가장 많이 만족하는 순서로 보여 줍니다"}. `+
     `점수는 ‘사람이 몰리고, 그 변화와 미세먼지 변화를 공공 자료로 잴 수 있는가’를 봅니다. 밈이 얼마나 유명한지만 보는 것이 아닙니다.`;
   list.innerHTML = items.map((r,i)=>{
     const P=r.parts||{}; const c=r.crowd||{}; const a=r.air||{};
@@ -1045,15 +1063,17 @@ function renderRecs(){
       a.wind!=null?`<span>바람</span> <b>${fx(a.wind,1)} m/s</b>`:"",
       a.pm25_u!=null?`<span>PM2.5 ${esc(a.urban)}</span> <b>${fx(a.pm25_u,0)}</b>`:(a.pm25_place!=null?`<span>PM2.5</span> <b>${fx(a.pm25_place,0)}</b>`:""),
       a.dno2!=null?`<span>ΔNO₂ 지금</span> <b>${a.dno2>=0?"+":""}${fx(a.dno2,1)} ppb</b>`:"",
-      r.meme?.rise!=null?`<span>블로그</span> <b>${r.meme.saturated?"매우 활발":fx(r.meme.rise,1)+"배"}</b>`:"",
+      r.meme?.rise!=null?`<span>${esc((r.meme.src||"블로그").replace(" 글 수",""))}</span> <b>${fx(r.meme.rise,1)}배</b>`:(r.meme?`<span>급상승</span> <b>판정 보류</b>`:""),
       r.gmaps?.reviews!=null?`<span>구글 리뷰</span> <b>${fx(r.gmaps.reviews,0)}</b>${r.gmaps.rating?` (★${fx(r.gmaps.rating,1)})`:""}`:"",
     ].filter(Boolean).map(x=>`<div>${x}</div>`).join("");
     return `<article class="rec ${r.key===ui.rec?"sel":""}" data-rec="${esc(r.key)}">
       <div class="rank"><b>${r.score}</b><span>${i+1}위</span></div>
       <div>
         <h4>${esc(r.label)} <small>${esc([r.gu, r.poi?.name&&r.poi.name!==r.label?"주요 장소: "+r.poi.name:"", (r.category||"").split(">").pop().trim()].filter(Boolean).join(" · "))}</small>
-          <span class="tag stagetag">${esc(r.stage)}</span>${r.tracked_id?`<span class="tag track">추적 중</span>`:""}</h4>
+          ${r.field?.ok?`<span class="tag field">${r.field.confirmed?"현장 측정 (직접 확정)":"현장 측정 후보"}</span>`:""}<span class="tag stagetag">${esc(r.stage)}</span>${r.tracked_id?`<span class="tag track">추적 중</span>`:""}</h4>
         <div class="terms">${(r.terms||[]).map(t=>`<span>${esc(t)}</span>`).join("")}</div>
+        ${(r.ctx||[]).length?`<div class="ctx">함께 나온 말: ${r.ctx.map(esc).join(", ")}</div>`:""}
+        ${r.field?`<div class="fchk" title="현장 측정 후보 조건">${r.field.checks.map(ch=>`<span class="${ch.ok?"y":"n"}" title="${esc(ch.why)}">${esc(ch.k)} <small class="small">${esc(ch.why)}</small></span>`).join("")}</div>`:""}
         <div class="sbar" aria-label="점수 구성">${bar}</div>
         <div class="slegend">${Object.keys(PART_NAMES).map(k=>`<span><i style="background:var(${PART_COLORS[k]})"></i>${PART_NAMES[k]} ${P[k]||0}</span>`).join("")}</div>
         <div class="kv">${kv}</div>
@@ -1071,6 +1091,7 @@ function renderRecs(){
   list.querySelectorAll("[data-recsel]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); ui.rec=b.dataset.recsel; saveUi(); renderRecs(); });
   renderRecMap(items);
   renderPmCompare();
+  renderRecCheck(R);
   const rej = R.rejected||[];
   $("#rejCount").textContent = String(rej.length);
   $("#rejTable").innerHTML = `<thead><tr><th>키워드</th><th>찾은 경로</th><th>풀린 장소</th><th>뺀 이유</th></tr></thead><tbody>`+
@@ -1363,7 +1384,7 @@ function renderKeywords(){
   $("#kwTable").innerHTML = `<thead><tr><th>밈 키워드</th><th>찾은 경로</th><th>풀린 장소</th><th>구</th><th>서울 주요 장소</th><th>블로그 최근 3일</th><th>그 전 7일</th><th>급상승</th><th>인구 확인</th><th>상태</th><th></th></tr></thead><tbody>`+
     (cands.length ? cands.slice(0,40).map(e=>{ const p=e.place||{}; const id=termTo.get(e.term);
       return `<tr><td>${esc(e.term)}</td><td>${esc(e.source)}</td><td style="text-align:left">${esc(p.name||"")}<br><span class="small">${esc(p.category||"")}</span></td><td>${esc(p.gu||"–")}</td><td>${esc(p.citydata?.name||"–")}</td>
-        <td>${fx(e.r3)}/일</td><td>${fx(e.rp)}/일</td><td style="${(e.rise||0)>=2?"color:var(--a10);font-weight:700":""}">${e.saturated?"매우 활발":fx(e.rise,1)+"배"}</td><td>${e.pop_confirmed?"✓":""}</td><td>${st(e)}</td><td>${id?`<button class="linkbtn" data-go="${esc(id)}">연결 보기</button>`:""}</td></tr>`; }).join("")
+        <td>${fx(e.r3)}/일</td><td>${fx(e.rp)}/일</td><td style="${((e.dl?.ok?e.dl.rise:e.rise)||0)>=2?"color:var(--a10);font-weight:700":""}">${e.dl?.ok?fx(e.dl.rise,1)+"배 <small class='small'>검색량</small>":e.saturated?"판정 보류":fx(e.rise,1)+"배"}</td><td>${e.pop_confirmed?"✓":""}</td><td>${st(e)}</td><td>${id?`<button class="linkbtn" data-go="${esc(id)}">연결 보기</button>`:""}</td></tr>`; }).join("")
       : `<tr><td colspan="11" class="empty">장소로 풀린 키워드가 아직 없습니다.</td></tr>`)+"</tbody>";
   const placeTerms = new Set(cands.map(e=>e.term));
   const rising = K?.rising||[];

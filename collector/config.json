@@ -87,7 +87,11 @@
     "max_age_days": 3,
     "live_top": 5,
     "fetch_air": true,
-    "air_top": 4
+    "air_top": 4,
+    "_현장측정": "현장 측정 후보 = ①밈이 구체적 ②지금도 활발 ③인구 평소 대비 field_min_ratio배 이상(지금 또는 최근 7일) ④도시대기·도로변 측정소 값이 둘 다 있음. 직접 확인한 곳은 field_confirm에 장소 이름이나 키워드를 넣으면 맨 위로, field_exclude에 넣으면 추천에서 뺍니다.",
+    "field_min_ratio": 1.3,
+    "field_confirm": [],
+    "field_exclude": []
   },
   "pm_map": {
     "_설명": "밈 기반 미세먼지 분포 예측과 실제 비교. 매시 에어코리아 값이 들어오면 h시간 뒤 분포를 예측하고, 그 시각 실제 값으로 채점합니다. 예측 = 지금 측정값(지속) + α × 인구 초과 × 밈 신호 ÷ (1+풍속) 을 밈 장소 중심 가우스(σ km)로 퍼뜨린 값. α는 지난 잔차로 자동 보정.",
@@ -176,7 +180,9 @@
       "페어",
       "엑스포"
     ],
-    "stopwords_extra": []
+    "stopwords_extra": [],
+    "use_datalab": true,
+    "datalab_max": 30
   },
   "keyword_groups": [
     {

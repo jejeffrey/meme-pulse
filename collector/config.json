@@ -106,7 +106,7 @@
       40
     ],
     "hotspot_q": 0.75,
-    "keep": 96,
+    "keep": 720,
     "use_roadside": true,
     "mask_km": 6.0
   },
@@ -212,7 +212,7 @@
   ],
   "search_days": 90,
   "search_refresh_hours": 6,
-  "keep_days": 60,
+  "keep_days": 180,
   "full_resolution_days": 7,
   "discovery": {
     "_설명": "자동 발굴 설정. README 7장 참고",
